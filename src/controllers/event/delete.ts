@@ -6,13 +6,13 @@ import { GROUP_ADMIN_STATUSES } from '../../helpers/telegram-user-statuses.ts';
 
 export default async (request: Request, response: Response, next: NextFunction): Promise<Response> => {
   try {
-    if (!Array.isArray(request.body.ids) || request.body.ids.length === 0) {
+    if (!Array.isArray(request.body.id_tasks) || request.body.id_tasks.length === 0) {
       return response.status(400).send('Updated event id is missing');
     }
 
     const chatIds = [
       ...new Set(
-        request.body.ids
+        request.body.id_tasks
           .map((taskId: number) => {
             return telegramEventRepository.getTelegramEventByTaskId(Number(taskId))?.chatId;
           })
@@ -31,7 +31,7 @@ export default async (request: Request, response: Response, next: NextFunction):
     const rpcResponse = await secretaryGateway.call({
       method: 'remove',
       params: {
-        ids: request.body.ids,
+        id_tasks: request.body.id_tasks,
       },
       accessToken: request.user?.access_token,
       geolocation: request.get('Geolocation'),

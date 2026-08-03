@@ -26,7 +26,7 @@ export default async function (_activity, message, bot): Promise<void> {
   try {
     const rpcResponse = await secretaryGateway.call({
       method: 'approval',
-      params: { task_id: Number(taskId), type },
+      params: { id_task: Number(taskId), type },
       accessToken: user.accessToken,
     });
 

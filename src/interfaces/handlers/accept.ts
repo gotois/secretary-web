@@ -12,7 +12,7 @@ export default async (activity, message, bot) => {
 
   const { result } = await secretaryGateway.call({
     method: 'approval',
-    params: { task_id: taskId, type },
+    params: { id_task: taskId, type },
     accessToken: user.accessToken,
   });
   if (!result) {

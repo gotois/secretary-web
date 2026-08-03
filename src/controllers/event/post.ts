@@ -47,7 +47,7 @@ export default async (request: Request, response: Response, next: NextFunction):
     for (const acct of accounts) {
       const shareResponse = await secretaryGateway.call({
         method: 'share',
-        params: { task_id: rpcResponse.result?.id_task, acct },
+        params: { id_task: rpcResponse.result?.id_task, acct },
         accessToken: request.user?.access_token,
         geolocation: request.get('Geolocation'),
         timezone: tz,
