@@ -1,15 +1,15 @@
 # Secretary: your personal assistant
 
 [![Website](https://img.shields.io/website/https/prosto-diary.gotointeractive.com.svg?link=https://prosto-diary.gotointeractive.com)](https://prosto-diary.gotointeractive.com)
-[![Known Vulnerabilities](https://snyk.io/test/github/gotois/ProstoDiary_bot/badge.svg)](https://snyk.io/test/github/gotois/ProstoDiary_bot)
-[![codecov](https://codecov.io/gh/gotois/ProstoDiary_bot/branch/master/graph/badge.svg)](https://codecov.io/gh/gotois/ProstoDiary_bot)
-[![Maintainability](https://api.codeclimate.com/v1/badges/709ebb5f0eae1d062e5e/maintainability)](https://codeclimate.com/github/gotois/ProstoDiary_bot/maintainability)
-![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/gotois/ProstoDiary_bot.svg?style=popout)
-![GitHub repo size](https://img.shields.io/github/repo-size/gotois/ProstoDiary_bot.svg)
+[![Known Vulnerabilities](https://snyk.io/test/github/gotois/secretary-tg/badge.svg)](https://snyk.io/test/github/gotois/secretary-tg)
+[![codecov](https://codecov.io/gh/gotois/secretary-tg/branch/master/graph/badge.svg)](https://codecov.io/gh/gotois/secretary-tg)
+[![Maintainability](https://api.codeclimate.com/v1/badges/709ebb5f0eae1d062e5e/maintainability)](https://codeclimate.com/github/gotois/secretary-tg/maintainability)
+![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/gotois/secretary-tg.svg?style=popout)
+![GitHub repo size](https://img.shields.io/github/repo-size/gotois/secretary-tg.svg)
 ![Docker Image](https://img.shields.io/docker/image-size/qertis/secretary-tg)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/gotois/ProstoDiary_bot.svg)](https://github.com/gotois/ProstoDiary_bot/commits/master)
-[![License: Common Public License Version 1.0](https://img.shields.io/badge/License-CPL-blue.svg)](https://github.com/gotois/ProstoDiary_bot/blob/master/LICENSE)
-[![Issuehunt](https://img.shields.io/badge/issuehunt.io-blueviolet.svg?link=https://issuehunt.io/r/gotois/ProstoDiary_bot&style=flat&label=jobs)](https://issuehunt.io/r/gotois/ProstoDiary_bot)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/gotois/secretary-tg.svg)](https://github.com/gotois/secretary-tg/commits/master)
+[![License: Common Public License Version 1.0](https://img.shields.io/badge/License-CPL-blue.svg)](https://github.com/gotois/secretary-tg/blob/master/LICENSE)
+[![Issuehunt](https://img.shields.io/badge/issuehunt.io-blueviolet.svg?link=https://issuehunt.io/r/gotois/secretary-tg&style=flat&label=jobs)](https://issuehunt.io/r/gotois/secretary-tg)
 
 ## About
 

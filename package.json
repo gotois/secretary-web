@@ -65,7 +65,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/gotois/ProstoDiary_bot.git"
+    "url": "https://github.com/gotois/secretary-tg.git"
   },
   "keywords": [
     "prostodiary",
@@ -81,7 +81,7 @@
   },
   "license": "SEE LICENSE IN LICENSE",
   "bugs": {
-    "url": "https://github.com/gotois/ProstoDiary_bot/issues",
+    "url": "https://github.com/gotois/secretary-tg/issues",
     "email": "support@gotointeractive.com"
   },
   "maintainers": [
@@ -125,7 +125,7 @@
     "openid-client": "6.8.4",
     "pdf-to-png-converter": "3.18.0",
     "request-json-rpc2": "2.3.1",
-    "secretary-ai": "https://github.com/gotois/secretary-ai.git",
+    "secretary-ai": "0.0.1",
     "telegram-bot-api-express": "1.4.4",
     "tsdav": "2.1.6",
     "uuid": "14.0.0",
