@@ -1,8 +1,13 @@
 import SecretaryAI from 'secretary-ai';
 
 export class AssistantGateway {
-  constructor(mcp, model, database) {
-    this.ai = new SecretaryAI(mcp, 'virtual-secretary-mcp-server', model, database);
+  constructor(mcp, model, database, SecretaryAIClient = SecretaryAI) {
+    this.ai = new SecretaryAIClient(
+      mcp,
+      'virtual-secretary-mcp-server',
+      model,
+      database,
+    );
   }
 
   async clearConversation(input: { chatId: number; tenantId: number }): Promise<void> {

@@ -16,9 +16,12 @@ export default async (request: Request, response: Response): Promise<Response> =
 
   switch (activity.type) {
     case 'Create': {
+      const taskId = getTaskIdFromReference(activity.object);
       const keyboardEdit = {
         text: 'Изменить',
-        url: activity.object,
+        web_app: {
+          url: linkPayload({ to: `/calendar/${taskId}/edit` }),
+        },
       };
       for (const to of activity.to) {
         const user = userRepository.findByActorId(to);
