@@ -3,18 +3,51 @@ import { secretaryGateway, telegramEventRepository } from '../../app/container.t
 import { bot } from '../../interfaces/bot.ts';
 import type { ChatId } from 'node-telegram-bot-api';
 import { GROUP_ADMIN_STATUSES } from '../../helpers/telegram-user-statuses.ts';
+import { decodeTaskUid, isTaskId } from '../../helpers/task-uid.ts';
+
+/**
+ * Нормализует совместимые id_tasks и новые uid_tasks до числовых id_task.
+ * @param body - тело DELETE /event
+ * @returns уникальные числовые id_task или undefined
+ */
+function getTaskIds(body: unknown): number[] | undefined {
+  if (typeof body !== 'object' || body === null) {
+    return;
+  }
+
+  const parameters = body as Record<string, unknown>;
+  const idTasks = parameters.id_tasks === undefined ? [] : parameters.id_tasks;
+  const uidTasks = parameters.uid_tasks === undefined ? [] : parameters.uid_tasks;
+  if (!Array.isArray(idTasks) || !Array.isArray(uidTasks) || (idTasks.length === 0 && uidTasks.length === 0)) {
+    return;
+  }
+
+  if (!idTasks.every(isTaskId)) {
+    return;
+  }
+
+  const decodedUidTasks = uidTasks.map((uid) => {
+    return decodeTaskUid(uid);
+  });
+  if (decodedUidTasks.includes(undefined)) {
+    return;
+  }
+
+  return [...new Set([...idTasks, ...(decodedUidTasks as number[])])];
+}
 
 export default async (request: Request, response: Response, next: NextFunction): Promise<Response> => {
   try {
-    if (!Array.isArray(request.body.id_tasks) || request.body.id_tasks.length === 0) {
-      return response.status(400).send('Updated event id is missing');
+    const taskIds = getTaskIds(request.body);
+    if (!taskIds) {
+      return response.status(400).send('Event id is missing or invalid');
     }
 
     const chatIds = [
       ...new Set(
-        request.body.id_tasks
+        taskIds
           .map((taskId: number) => {
-            return telegramEventRepository.getTelegramEventByTaskId(Number(taskId))?.chatId;
+            return telegramEventRepository.getTelegramEventByTaskId(taskId)?.chatId;
           })
           .filter((chatId: number | undefined): chatId is number => {
             return chatId !== undefined;
@@ -31,7 +64,7 @@ export default async (request: Request, response: Response, next: NextFunction):
     const rpcResponse = await secretaryGateway.call({
       method: 'remove',
       params: {
-        id_tasks: request.body.id_tasks,
+        id_tasks: taskIds,
       },
       accessToken: request.user?.access_token,
       geolocation: request.get('Geolocation'),

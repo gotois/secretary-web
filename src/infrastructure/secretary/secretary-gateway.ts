@@ -19,7 +19,9 @@ export class SecretaryGateway {
       },
     });
     if (!response.ok) {
-      throw new Error('Ошибка Task');
+      const error = new Error('Ошибка Task') as Error & { status: number };
+      error.status = response.status;
+      throw error;
     }
     return response.json();
   }
@@ -78,6 +80,7 @@ export class SecretaryGateway {
     accessToken: string;
     geolocation?: string;
     timezone?: string;
+    accept?: string;
   }): Promise<JSONRPCResponse> {
     return jsonRpc({
       url: `${this.host}/rpc`,
@@ -88,6 +91,7 @@ export class SecretaryGateway {
         params: input.params,
       },
       headers: {
+        Accept: input.accept ?? 'application/json',
         Authorization: `Bearer ${input.accessToken}`,
         Geolocation: input.geolocation,
         Timezone: input.timezone,
