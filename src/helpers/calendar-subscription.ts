@@ -1,14 +1,40 @@
-import ICalendar, { VFreeBusy } from 'ical-browser';
-import ICAL from 'ical.js';
+import ICalendar, { VAlarm, VEvent, VFreeBusy } from 'ical-browser';
 import { encodeTaskUid, isTaskId } from './task-uid.ts';
 
 type BusyType = 'BUSY' | 'BUSY-TENTATIVE' | 'BUSY-UNAVAILABLE';
 
 interface SubscriptionTask {
   id_task: number;
-  uid_task: string;
+  name: string;
+  description?: string;
+  id_user?: string;
+  category_name?: string;
+  priority?: number;
+  updated_at?: string;
   start_date: string;
   end_date?: string;
+  latitude?: number;
+  longitude?: number;
+  location?: string;
+  link_meeting?: string;
+  i_cal_class_name?: string;
+  task_status_name?: string;
+  recurrence?: SubscriptionRecurrence | null;
+  remind_before?: number;
+  sequence?: number;
+  attendee?: Array<{ name?: string; uri: string }>;
+}
+
+interface SubscriptionRecurrence {
+  recurrence_type: number;
+  interval: number;
+  weekdays?: number | null;
+  day_of_month?: number | null;
+  month?: number | null;
+  hour?: number | null;
+  minute?: number | null;
+  count?: number;
+  until?: string;
 }
 
 interface AvailabilityConflict {
@@ -25,7 +51,6 @@ interface BusyPeriod {
 
 interface BuildSubscriptionCalendarInput {
   tasks: unknown;
-  eventCalendars: unknown;
   availabilityConflicts: unknown;
   start: Date;
   end: Date;
@@ -34,6 +59,26 @@ interface BuildSubscriptionCalendarInput {
 }
 
 const BUSY_TYPES = new Set<BusyType>(['BUSY', 'BUSY-TENTATIVE', 'BUSY-UNAVAILABLE']);
+const EVENT_STATUSES = new Set(['TENTATIVE', 'CONFIRMED', 'CANCELLED']);
+const EVENT_CLASSES = new Set(['PUBLIC', 'PRIVATE', 'CONFIDENTIAL']);
+type EventInput = ConstructorParameters<typeof VEvent>[0];
+
+/**
+ * Возвращает годовой период subscription: три месяца вперёд и оставшийся
+ * диапазон в прошлом.
+ * @param referenceDate - текущая дата
+ * @param timeZone - часовой пояс пользователя
+ * @returns границы периода
+ */
+export function getSubscriptionPeriod(referenceDate: Date, timeZone: string): { start: Date; end: Date } {
+  const reference = Temporal.Instant.from(referenceDate.toISOString()).toZonedDateTimeISO(timeZone);
+  const end = reference.add({ months: 3 }).startOfDay();
+  const start = end.subtract({ years: 1 });
+  return {
+    start: new Date(start.epochMilliseconds),
+    end: new Date(end.epochMilliseconds),
+  };
+}
 
 /**
  * Преобразует значение RPC в дату.
@@ -50,35 +95,125 @@ function toDate(value: unknown, field: string): Date {
 }
 
 /**
- * Валидирует задачи и строит индекс исходных UID.
- * @param value - JSON-результат RPC show
- * @returns задачи и соответствие UID в id_task
+ * Преобразует необязательное RPC-значение в дату.
+ * @param value - значение даты
+ * @param field - имя поля для ошибки
+ * @returns корректная дата или undefined
  */
-function parseTasks(value: unknown): { tasks: SubscriptionTask[]; taskIdsByUid: Map<string, number> } {
+function optionalDate(value: unknown, field: string): Date | undefined {
+  return value === undefined || value === null ? undefined : toDate(value, field);
+}
+
+/**
+ * Преобразует битовую маску дней недели в значения RRULE.
+ * @param mask - битовая маска от понедельника до воскресенья
+ * @returns дни недели RRULE
+ */
+function recurrenceWeekdays(mask: number | null | undefined): string[] {
+  const days = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+  return days.filter((_day, index) => {
+    return (mask ?? 0) & (1 << index);
+  });
+}
+
+/**
+ * Преобразует внутренний тип повторения в частоту RRULE.
+ * @param type - идентификатор типа повторения
+ * @returns частота RRULE
+ */
+function recurrenceFrequency(type: number): string {
+  switch (type) {
+    case 1: {
+      return 'SECONDLY';
+    }
+    case 2: {
+      return 'MINUTELY';
+    }
+    case 3: {
+      return 'HOURLY';
+    }
+    case 4: {
+      return 'DAILY';
+    }
+    case 5: {
+      return 'WEEKLY';
+    }
+    case 6: {
+      return 'MONTHLY';
+    }
+    case 7: {
+      return 'YEARLY';
+    }
+    default: {
+      throw new TypeError(`Unknown recurrence type: ${type}`);
+    }
+  }
+}
+
+/**
+ * Формирует RRULE из JSON-представления повторяемости.
+ * @param recurrence - параметры повторяемости задачи
+ * @returns параметры RRULE или undefined
+ */
+function toRecurrenceRule(recurrence: SubscriptionRecurrence | null | undefined): EventInput['rrule'] {
+  if (!recurrence) return;
+  if (!Number.isSafeInteger(recurrence.interval) || recurrence.interval < 1) {
+    throw new TypeError('show result contains an invalid recurrence interval');
+  }
+
+  return {
+    freq: recurrenceFrequency(recurrence.recurrence_type),
+    count: recurrence.count,
+    interval: recurrence.interval,
+    until: optionalDate(recurrence.until, 'recurrence until'),
+    wkst: 'MO',
+    byday: recurrenceWeekdays(recurrence.weekdays),
+    bymonthday: recurrence.day_of_month ?? undefined,
+    bymonth: recurrence.month ?? undefined,
+    byhour: recurrence.hour ?? undefined,
+    byminute: recurrence.minute ?? undefined,
+  } as EventInput['rrule'];
+}
+
+/**
+ * Преобразует необязательную ссылку задачи в URL.
+ * @param value - значение ссылки
+ * @returns URL или undefined
+ */
+function optionalUrl(value: unknown): URL | undefined {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'string') {
+    throw new TypeError('show result contains an invalid link_meeting');
+  }
+  try {
+    return new URL(value);
+  } catch {
+    throw new TypeError('show result contains an invalid link_meeting');
+  }
+}
+
+/**
+ * Валидирует задачи из JSON-представления show.
+ * @param value - JSON-результат RPC show
+ * @returns проверенные задачи
+ */
+function parseTasks(value: unknown): SubscriptionTask[] {
   if (!Array.isArray(value)) {
     throw new TypeError('show result must be an array');
   }
 
   const tasks = value as SubscriptionTask[];
-  const taskIdsByUid = new Map<string, number>();
   for (const task of tasks) {
-    if (!isTaskId(task?.id_task) || typeof task?.uid_task !== 'string' || !task.uid_task) {
+    if (!isTaskId(task?.id_task) || typeof task?.name !== 'string' || !task.name) {
       throw new TypeError('show result contains an invalid task');
     }
     toDate(task.start_date, 'start_date');
     if (task.end_date !== undefined) {
       toDate(task.end_date, 'end_date');
     }
-
-    const uid = task.uid_task.toLowerCase();
-    const existingTaskId = taskIdsByUid.get(uid);
-    if (existingTaskId !== undefined && existingTaskId !== task.id_task) {
-      throw new TypeError('show result contains duplicate task UID');
-    }
-    taskIdsByUid.set(uid, task.id_task);
   }
 
-  return { tasks, taskIdsByUid };
+  return tasks;
 }
 
 /**
@@ -105,56 +240,53 @@ function parseAvailabilityConflicts(value: unknown): BusyPeriod[] {
 }
 
 /**
- * Добавляет VEVENT из calendar-представления show и заменяет UID.
- * @param calendar - итоговый календарь
- * @param value - массив ICS из RPC show
- * @param taskIdsByUid - соответствие исходных UID в id_task
+ * Формирует VEVENT из JSON-представления задачи.
+ * @param task - задача из RPC show
+ * @returns событие календаря
  */
-function addTaskEvents(calendar: ICAL.Component, value: unknown, taskIdsByUid: Map<string, number>): void {
-  if (
-    !Array.isArray(value) ||
-    !value.every((item) => {
-      return typeof item === 'string';
-    })
-  ) {
-    throw new TypeError('calendar show result must be an array of ICS strings');
+function toEvent(task: SubscriptionTask): VEvent {
+  const start = toDate(task.start_date, 'start_date');
+  const end = optionalDate(task.end_date, 'end_date');
+  if (end && end < start) {
+    throw new TypeError('show result contains an invalid task period');
   }
+  const updatedAt = optionalDate(task.updated_at, 'updated_at');
+  const event = new VEvent({
+    uid: encodeTaskUid(task.id_task),
+    summary: task.name,
+    description: task.description,
+    start,
+    end,
+    location: task.location,
+    url: optionalUrl(task.link_meeting),
+    geo: task.latitude === undefined || task.longitude === undefined ? undefined : [task.latitude, task.longitude],
+    rrule: toRecurrenceRule(task.recurrence),
+    klass: EVENT_CLASSES.has(task.i_cal_class_name ?? '') ? (task.i_cal_class_name as EventInput['klass']) : undefined,
+    categories: task.category_name ? [task.category_name] : undefined,
+    priority: task.priority,
+    sequence: task.sequence,
+    status: EVENT_STATUSES.has(task.task_status_name ?? '')
+      ? (task.task_status_name as EventInput['status'])
+      : undefined,
+    lastModified: updatedAt,
+    ['x-emotional']: 'neutral',
+    ['X-MICROSOFT-DISALLOW-COUNTER']: true,
+    ...(updatedAt ? { ['X-MOZ-LASTACK']: updatedAt.toISOString().replaceAll(/[-:]|\.\d{3}/g, '') } : {}),
+    transp: 'OPAQUE',
+    organizer: task.id_user,
+    attendee: task.attendee as EventInput['attendee'],
+  });
 
-  const mappedTaskIds = new Set<number>();
-  const timezoneIds = new Set(
-    calendar.getAllSubcomponents('vtimezone').map((timezone) => {
-      return String(timezone.getFirstPropertyValue('tzid'));
-    }),
-  );
-
-  for (const ics of value as string[]) {
-    const source = new ICAL.Component(ICAL.parse(ics));
-    for (const timezone of source.getAllSubcomponents('vtimezone')) {
-      const timezoneId = String(timezone.getFirstPropertyValue('tzid'));
-      if (!timezoneIds.has(timezoneId)) {
-        timezoneIds.add(timezoneId);
-        calendar.addSubcomponent(timezone);
-      }
-    }
-
-    for (const event of source.getAllSubcomponents('vevent')) {
-      const uid = event.getFirstPropertyValue('uid');
-      if (typeof uid !== 'string') {
-        throw new TypeError('calendar show result contains VEVENT without UID');
-      }
-      const taskId = taskIdsByUid.get(uid.toLowerCase());
-      if (taskId === undefined) {
-        throw new TypeError('calendar show event does not match JSON show result');
-      }
-      event.updatePropertyWithValue('uid', encodeTaskUid(taskId));
-      mappedTaskIds.add(taskId);
-      calendar.addSubcomponent(event);
-    }
+  if (task.remind_before !== undefined) {
+    event.addAlarm(
+      new VAlarm({
+        action: 'DISPLAY',
+        trigger: `-PT${task.remind_before}S`,
+        description: task.name,
+      }),
+    );
   }
-
-  if (mappedTaskIds.size !== taskIdsByUid.size) {
-    throw new TypeError('JSON show task does not match calendar show result');
-  }
+  return event;
 }
 
 /**
@@ -163,7 +295,7 @@ function addTaskEvents(calendar: ICAL.Component, value: unknown, taskIdsByUid: M
  * @returns единый VCALENDAR с UUIDv8 и VFREEBUSY
  */
 export function buildSubscriptionCalendar(input: BuildSubscriptionCalendarInput): string {
-  const { tasks, taskIdsByUid } = parseTasks(input.tasks);
+  const tasks = parseTasks(input.tasks);
   const taskBusyPeriods = tasks.flatMap((task): BusyPeriod[] => {
     if (!task.end_date) {
       return [];
@@ -188,8 +320,8 @@ export function buildSubscriptionCalendar(input: BuildSubscriptionCalendarInput)
       }),
     );
   }
-
-  const calendar = new ICAL.Component(ICAL.parse(generatedCalendar.ics));
-  addTaskEvents(calendar, input.eventCalendars, taskIdsByUid);
-  return calendar.toString();
+  for (const task of tasks) {
+    generatedCalendar.addEvent(toEvent(task));
+  }
+  return generatedCalendar.ics;
 }
