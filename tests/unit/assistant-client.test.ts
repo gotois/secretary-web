@@ -7,8 +7,8 @@ test('configures SecretaryAI with the MCP server URL', (t) => {
   const database = {};
   let options;
   class SecretaryAIClient {
-    constructor(mcpServerUrl, serverName, clientModel, db) {
-      options = { mcpServerUrl, serverName, model: clientModel, db };
+    constructor(mcpServerUrl, serverName, clientModel, databaseClient) {
+      options = { mcpServerUrl, serverName, model: clientModel, db: databaseClient };
     }
   }
 

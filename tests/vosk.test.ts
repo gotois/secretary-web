@@ -9,7 +9,7 @@ const VOSK_HOST = process.env.VOSK_HOST || 'localhost';
 const VOSK_PORT = process.env.VOSK_PORT || 2700;
 const VOSK_URL = `http://${VOSK_HOST}:${VOSK_PORT}`;
 
-const WAV_PATH = path.resolve(__dirname, '../../../vosk/test-ru.wav');
+const WAV_PATH = path.resolve(__dirname, 'fixtures/test-ru.wav');
 
 /**
  * Создаёт FormData с тестовым WAV-файлом

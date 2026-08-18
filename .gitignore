@@ -19,6 +19,7 @@ node_modules/
 *.crt
 *.key
 *.pem
+*.wav
 
 codeql-runner
 *.sqlite
