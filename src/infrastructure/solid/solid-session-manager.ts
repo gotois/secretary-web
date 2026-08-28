@@ -16,6 +16,7 @@ import {
 } from '../database/sqlite-solid-auth-repository.ts';
 
 const LOGIN_TRANSACTION_TTL_SECONDS = 10 * 60;
+const SESSION_REFRESH_RETRY_DELAYS_MS = [250, 500, 1000, 2000];
 
 export class SolidAuthorizationRequiredError extends Error {
   constructor() {
@@ -74,6 +75,39 @@ function metadataUrl(issuer: string): URL {
  */
 function isInvalidGrant(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'error' in error && error.error === 'invalid_grant';
+}
+
+/**
+ * Повторяет OIDC-операцию только после временных серверных ошибок.
+ * @param operation - OIDC-операция
+ * @param retryDelays - Задержки перед повторными попытками
+ * @returns Результат OIDC-операции
+ */
+export async function retryTransientOidcOperation<T>(
+  operation: () => Promise<T>,
+  retryDelays: readonly number[] = SESSION_REFRESH_RETRY_DELAYS_MS,
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await operation();
+    } catch (error) {
+      const response =
+        typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object'
+          ? error.response
+          : undefined;
+      const statusCode =
+        response !== null && response !== undefined && 'statusCode' in response ? response.statusCode : undefined;
+      const retryDelay = retryDelays[attempt];
+      if (typeof statusCode !== 'number' || statusCode < 500 || retryDelay === undefined) {
+        throw error;
+      }
+      attempt += 1;
+      await new Promise((resolve) => {
+        setTimeout(resolve, retryDelay);
+      });
+    }
+  }
 }
 
 export class SolidSessionManager {
@@ -231,7 +265,9 @@ export class SolidSessionManager {
     }
     this.#listenForTokens(authorization.id, solidSession);
     try {
-      await refreshSession(solidSession, { storage: this.#repository });
+      await retryTransientOidcOperation(() => {
+        return refreshSession(solidSession, { storage: this.#repository });
+      });
     } catch (error) {
       if (!isInvalidGrant(error)) {
         throw error;
