@@ -1,4 +1,5 @@
-# Secretary: your personal assistant
+# Secretary Server
+> Your personal assistant: diary watcher, life analyzer, and task manager.
 
 [![Website](https://img.shields.io/website/https/prosto-diary.gotointeractive.com.svg?link=https://prosto-diary.gotointeractive.com)](https://prosto-diary.gotointeractive.com)
 [![Known Vulnerabilities](https://snyk.io/test/github/gotois/secretary-tg/badge.svg)](https://snyk.io/test/github/gotois/secretary-tg)
@@ -10,10 +11,6 @@
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/m/gotois/secretary-tg.svg)](https://github.com/gotois/secretary-tg/commits/master)
 [![License: Common Public License Version 1.0](https://img.shields.io/badge/License-CPL-blue.svg)](https://github.com/gotois/secretary-tg/blob/master/LICENSE)
 [![Issuehunt](https://img.shields.io/badge/issuehunt.io-blueviolet.svg?link=https://issuehunt.io/r/gotois/secretary-tg&style=flat&label=jobs)](https://issuehunt.io/r/gotois/secretary-tg)
-
-## About
-
-Text diary, food analyze, health watcher, sleep analyze
 
 Install
 ---
