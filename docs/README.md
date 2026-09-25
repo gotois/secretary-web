@@ -28,7 +28,7 @@ scripts/prepare
 Add host `/etc/hosts` for local development
 
 ```text
-127.0.0.1       bot.lh
+127.0.0.1       tg-dev.gotointeractive.com
 ```
 
 ```bash
@@ -37,8 +37,8 @@ openssl req -x509 -newkey rsa:2048 \
   -keyout certs/server/bot-key.pem \
   -out certs/server/bot-cert.pem \
   -days 365 -nodes \
-  -subj "/CN=bot.lh" \
-  -addext "subjectAltName=DNS:bot.lh"
+  -subj "/CN=tg-dev.gotointeractive.com" \
+  -addext "subjectAltName=DNS:tg-dev.gotointeractive.com"
 ```
 
 For MacOS add certificate to trusted
