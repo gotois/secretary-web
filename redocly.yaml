@@ -1,0 +1,6 @@
+apis:
+  secretary@v8:
+    root: ./openapi/secretary.json
+    x-openapi-ts:
+      output: ./api.d.ts
+      default-non-nullable: false

@@ -11,7 +11,12 @@ import { SECRETARY } from '#env';
 export default async (activity, message, bot) => {
   await bot.deleteMessage(message.chat.id, message.message_id);
 
-  const body = {
+  const body: {
+    contact: { phoneNumber: unknown; firstName: unknown; lastName: unknown; userId: unknown };
+    authDate: number;
+    hash: string;
+    photo_url?: string;
+  } = {
     contact: {
       phoneNumber: message.contact.phone_number,
       firstName: message.contact.first_name,

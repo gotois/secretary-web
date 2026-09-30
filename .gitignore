@@ -1,4 +1,5 @@
 node_modules/
+/api.d.ts
 /.idea/
 /coverage/
 /reports/

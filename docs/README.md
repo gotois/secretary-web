@@ -1,4 +1,5 @@
 # Secretary Server
+
 > Your personal assistant: diary watcher, life analyzer, and task manager.
 
 [![Website](https://img.shields.io/website/https/prosto-diary.gotointeractive.com.svg?link=https://prosto-diary.gotointeractive.com)](https://prosto-diary.gotointeractive.com)
