@@ -1,5 +1,5 @@
 {
-  "name": "tg",
+  "name": "web",
   "version": "0.0.1",
   "description": "Global Virtual assistant: your personal all-in-one secretary. Telegram Bot Edition",
   "publisher": "GIC DAO",
@@ -72,7 +72,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/gotois/secretary-tg.git"
+    "url": "https://github.com/gotois/secretary-web.git"
   },
   "keywords": [
     "prostodiary",
@@ -88,7 +88,7 @@
   },
   "license": "SEE LICENSE IN LICENSE",
   "bugs": {
-    "url": "https://github.com/gotois/secretary-tg/issues",
+    "url": "https://github.com/gotois/secretary-web/issues",
     "email": "support@gotointeractive.com"
   },
   "maintainers": [
