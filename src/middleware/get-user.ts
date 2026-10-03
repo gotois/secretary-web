@@ -1,37 +1,13 @@
-import { timingSafeEqual } from 'node:crypto';
 import { container, userRepository } from '../app/container.ts';
 import {
   SolidAuthorizationRequiredError,
   type ActiveSolidAuthorization,
 } from '../infrastructure/solid/solid-session-manager.ts';
-import { generateTelegramHash } from '../libs/tg-crypto.ts';
 import { SERVER } from '#env';
 import type { Request, Response, NextFunction } from 'express';
+import { getTmaUserId } from './tma-auth.ts';
 
-/**
- * Проверяет подпись Telegram initData и извлекает пользователя.
- * @param initData - Строка инициализации Telegram Mini App
- * @returns Telegram user id при валидной подписи
- */
-export function getTmaUserId(initData: string): number | undefined {
-  const parameters = Object.fromEntries(new URLSearchParams(initData));
-  const hash = parameters.hash;
-  if (!hash || !/^[\da-f]{64}$/i.test(hash)) {
-    return;
-  }
-
-  const expectedHash = generateTelegramHash(parameters);
-  if (!timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(expectedHash, 'hex'))) {
-    return;
-  }
-
-  try {
-    const user = JSON.parse(parameters.user ?? 'null');
-    return typeof user?.id === 'number' ? user.id : undefined;
-  } catch {
-    return;
-  }
-}
+export { getTmaUserId } from './tma-auth.ts';
 
 /**
  * @description Проверяет TMA авторизацию и добавляет пользователя в request

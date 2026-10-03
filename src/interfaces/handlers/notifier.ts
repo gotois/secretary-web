@@ -20,7 +20,7 @@ export const notifyNextHour = (activity, message, bot) => {
     await bot.sendMessage(message.chat.id, 'Напоминаю.', {
       message_id: message.message_id,
     });
-  }, 60_000);
+  }, 60_000); // TODO: notifyNextHour срабатывает через минуту; рассчитывать задержку в один час.
 };
 
 export const notifyNextDay = (activity, message, bot) => {
@@ -28,5 +28,5 @@ export const notifyNextDay = (activity, message, bot) => {
     await bot.sendMessage(message.chat.id, 'Напоминаю.', {
       message_id: message.message_id,
     });
-  }, 1000); // fixme - напоминать рано утром
+  }, 1000); // TODO: notifyNextDay срабатывает через секунду; рассчитывать следующее утро в timezone пользователя.
 };

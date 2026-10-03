@@ -1,71 +1,20 @@
-import {
-  TYPING,
-  parseMode,
-  linkPayload,
-  linkStartApp,
-  sendPrepareMessage,
-  sendPrepareAction,
-} from '../../libs/tg-messages.ts';
+import { TYPING, parseMode, sendPrepareAction } from '../../libs/tg-messages.ts';
 import { assistantGateway } from '../../app/container.ts';
+import { generateInlineKeyboard, getAssistantReply } from '../../helpers/assistant-response.ts';
 
-/**
- * Генерирует inline-клавиатуру из артефактов
- * @param {unknown[]} artifact - список артефактов из ответа AI
- * @returns {unknown[][]} Массив строк inline-кнопок
- */
-function generateInlineKeyboard(artifact: unknown[] = []): unknown[][] {
-  const inlineKeyboard = [];
-  for (const action of artifact) {
-    switch (action['@type']) {
-      case 'CreateAction': {
-        const taskId = getTaskId(action.id);
-        const to = `/edit/${taskId}`; // todo - переделать под формат ссылки календаря
-        const text = 'Открыть';
-        const isMiniApp = 1; // Открыто в MiniApp или WebApp
-        if (isMiniApp) {
-          inlineKeyboard.push([
-            {
-              text: text,
-              url: linkStartApp({ to }),
-            },
-          ]);
-        } else {
-          inlineKeyboard.push([
-            {
-              text: text,
-              web_app: linkPayload({ to }),
-            },
-          ]);
-        }
-        break;
-      }
-      default: {
-        break;
-      }
-    }
-  }
-  return inlineKeyboard;
-}
-
-const getTaskId = (id) => {
-  const url = new URL(id);
-  const segments = url.pathname.split('/').filter(Boolean);
-  const result = segments.at(-1);
-  if (result.length > 0) {
-    return Number(result);
-  }
-};
-
-export default async (activity, message, bot) => {
+export default async (_activity, message, bot) => {
   await sendPrepareAction(bot, message.chat.id, TYPING);
 
   let secretaryData;
   try {
+    if (!message.user.accessToken) {
+      throw new Error('Пользователь не авторизован');
+    }
     secretaryData = await assistantGateway.processText({
       text: message.text,
       chatId: message.chat.id,
       tenantId: message.from.id,
-      userId: message.user.sub,
+      userId: message.user.actorId ?? undefined,
       language: message.user.language,
       accessToken: message.user.accessToken,
       location: message.user.location,
@@ -79,9 +28,13 @@ export default async (activity, message, bot) => {
     throw error;
   }
   const { content, artifact } = secretaryData;
+  const reply = getAssistantReply(content);
+  if (!reply) {
+    throw new Error('Ассистент не вернул ответ');
+  }
 
-  await bot.sendMessage(message.chat.id, content[0].text, {
-    parse_mode: parseMode('text/markdown'),
+  await bot.sendMessage(message.chat.id, reply, {
+    parse_mode: parseMode('text/plain'),
     reply_to_message_id: message.message_id,
     protect_content: true,
     disable_notification: true,
@@ -91,7 +44,4 @@ export default async (activity, message, bot) => {
       force_reply: true,
     },
   });
-  if (artifact) {
-    await sendPrepareMessage(activity, message, bot);
-  }
 };

@@ -1,6 +1,5 @@
 import type { PostAuthorizationGateway } from '../repositories/post-authorization-gateway.ts';
 
-// todo refactor
 export class PrepareAuthorizationWelcome {
   gateway: PostAuthorizationGateway;
   constructor(gateway: PostAuthorizationGateway) {

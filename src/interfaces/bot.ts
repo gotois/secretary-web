@@ -1,18 +1,14 @@
-/* eslint-disable */
-import botController from 'telegram-bot-api-express';
-import pingAction from './handlers/ping.ts';
-import dbclearAction from './handlers/dbclear.ts';
-import clearAction from './handlers/clear.ts';
-import helpAction from './handlers/help.ts';
-import startAction from './handlers/start.ts';
-import editedMessageTextAction from './handlers/edited-message-text.ts';
+import botController, {
+  type EventHandler,
+  type ExtendedMessage,
+  type ForwardMessagesHandler,
+} from 'telegram-bot-api-express';
 import channelPostAction from './handlers/channel-post.ts';
-import groupTextAction from './handlers/group-text.ts';
-import locationAction from './handlers/location.ts';
-import photoAction from './handlers/photo.ts';
-import mentionAction from './handlers/mention.ts';
 import documentAction from './handlers/document.ts';
 import voiceAction from './handlers/voice.ts';
+import audioAction from './handlers/audio.ts';
+import locationAction from './handlers/location.ts';
+import photoAction from './handlers/photo.ts';
 import videoAction from './handlers/video.ts';
 import groupChatCreatedAction from './handlers/group-chat-created.ts';
 import chatMembers from './handlers/new-chat-members.ts';
@@ -22,21 +18,56 @@ import channelChatCreated from './handlers/channel-chat-created.ts';
 import supergroupChatCreated from './handlers/supergroup-chat-created.ts';
 import stickerAction from './handlers/sticker.ts';
 import animationAction from './handlers/animation.ts';
-import pollAction from './handlers/poll.ts';
-import audioAction from './handlers/audio.ts';
-import contactAction from './handlers/contact.ts';
 import inlineAction from './handlers/inline.ts';
-import textAction from './handlers/text.ts';
+import privateTextAction from './handlers/private-text.ts';
 import forwards from './handlers/text-forwards.ts';
-import { notifyDice, notifyNextHour, notifyNextDay } from './handlers/notifier.ts';
-import checkAuth from '../middleware/check-auth.ts';
+import checkAuth, { type BotApi, type BotMessage } from '../middleware/check-auth.ts';
+import { authorizeBotMessage } from '../middleware/authorize-bot-message.ts';
 import errorHandler from '../middleware/error-handler.ts';
 import replyToMessageAction from './handlers/reply-to-message.ts';
-import acceptCallback from './handlers/accept.ts';
-import rejectCallback from './handlers/reject.ts';
-import meetingRsvpAction from './handlers/meeting-rsvp.ts';
+import webAppDataAction from './handlers/web-app-data.ts';
 import { TELEGRAM } from '#env';
 import { container, userRepository } from '../app/container.ts';
+import { registerCallbackQueryHandlers } from './callback-query.ts';
+import type { User } from '../domain/entities/user.ts';
+
+const asEventHandler = (handler: unknown): EventHandler => {
+  return handler as EventHandler;
+};
+
+function attachUser(message: ExtendedMessage & { user?: User }): User | undefined {
+  const telegramId = message.chat.id;
+  const user =
+    userRepository.findById(telegramId) ??
+    container.user.ensureUser({
+      telegramId,
+      language: message.from?.language_code,
+    });
+  message.user = user;
+  return user;
+}
+
+const withUser = (handler: EventHandler): EventHandler => {
+  return async (activity, eventMessage, eventBot) => {
+    attachUser(eventMessage as ExtendedMessage & { user?: User });
+    await handler(activity, eventMessage, eventBot);
+  };
+};
+
+const authenticatedForwards: ForwardMessagesHandler = async (activities, messages) => {
+  const firstMessage = messages[0] as (ExtendedMessage & { user?: Partial<User> }) | undefined;
+  if (!firstMessage) {
+    return;
+  }
+  attachUser(firstMessage as ExtendedMessage & { user?: User });
+  if (!(await authorizeBotMessage(firstMessage as BotMessage, bot as unknown as BotApi, container.authorization))) {
+    return;
+  }
+  for (const message of messages as Array<ExtendedMessage & { user?: Partial<User> }>) {
+    message.user = firstMessage.user;
+  }
+  await forwards(activities, messages, bot);
+};
 
 const { middleware, bot } = botController({
   token: TELEGRAM.TOKEN,
@@ -46,63 +77,36 @@ const { middleware, bot } = botController({
   privateEvents: {
     /* MY COMMANDS */
 
-    [/^\/(ping|пинг)$/]: errorHandler(pingAction),
-    [/^\/exit|выйти$/]: checkAuth(dbclearAction),
-    [/^\/start|начать$/]: errorHandler(startAction),
-    [/^\/help|man|помощь$/]: errorHandler(helpAction),
-    [/^\/new$/]: () => checkAuth(clearAction),
+    ['bot_command']: withUser(asEventHandler(errorHandler(privateTextAction))),
 
     /* NATIVE COMMANDS */
 
-    // ['location']: checkAuth(locationAction),
-    ['sticker']: checkAuth(stickerAction),
-    ['animation']: checkAuth(animationAction),
+    ['location']: withUser(asEventHandler(checkAuth(locationAction))),
+    ['sticker']: withUser(asEventHandler(checkAuth(stickerAction))),
+    ['animation']: withUser(asEventHandler(checkAuth(animationAction))),
     // ['poll']: checkAuth(pollAction),
     // ['mention']: checkAuth(mentionAction),
     // ['edited_message_text']: checkAuth(editedMessageTextAction),
-    ['text']: checkAuth(textAction),
-    // ['photo']: checkAuth(photoAction),
-    ['voice']: checkAuth(voiceAction),
-    // ['audio']: checkAuth(audioAction),
-    // ['video']: checkAuth(videoAction),
-    // ['video_note']: checkAuth(videoAction),
-    ['document']: checkAuth(documentAction),
+    ['text']: withUser(asEventHandler(errorHandler(privateTextAction))),
+    ['photo']: withUser(asEventHandler(checkAuth(photoAction))),
+    ['voice']: withUser(asEventHandler(checkAuth(voiceAction))),
+    ['audio']: withUser(asEventHandler(checkAuth(audioAction))),
+    ['video']: withUser(asEventHandler(checkAuth(videoAction))),
+    ['video_note']: withUser(asEventHandler(checkAuth(videoAction))),
+    ['document']: withUser(asEventHandler(checkAuth(documentAction))),
     // ['contact']: checkAuth(contactAction),
     ['inline_query']: inlineAction,
-    ['message_forwards']: checkAuth(forwards),
-    ['reply_to_message']: checkAuth(replyToMessageAction),
-    ['pinned_message']: () => {},
+    ['message_forwards']: authenticatedForwards,
+    ['reply_to_message']: withUser(asEventHandler(checkAuth(replyToMessageAction))),
+    // TODO: подключить pinned_message после определения полезного действия для закреплённого сообщения.
 
     /* CALLBACK */
-    ['web_app_data']: async (_activity, message) => {
-      console.log('message::', message);
-      // TODO: валидировать JSON и схему каждого элемента до обработки. Сейчас некорректный
-      // web_app_data бросает исключение, а произвольные `type`/`data` доходят до use case.
-      const webAppData = JSON.parse(message.web_app_data.data);
-      for (const { type, data } of webAppData) {
-        switch (type) {
-          case 'tz': {
-            await container.user.updateUserTimezone({ telegramId: message.chat.id, timezone: data });
-            break;
-          }
-          case 'location': {
-            await container.user.updateUserLocation({ telegramId: message.chat.id, ...data });
-            break;
-          }
-          default: {
-            console.warn('Unknown type:' + webAppData.type, webAppData);
-            break;
-          }
-        }
-      }
-    },
+    ['web_app_data']: withUser(asEventHandler(errorHandler(webAppDataAction))),
 
-    ['notify_calendar--later']: checkAuth(notifyDice),
-    ['notify_calendar--60']: checkAuth(notifyNextHour),
-    ['notify_calendar--next-day']: checkAuth(notifyNextDay),
-
-    [/^reject/]: rejectCallback,
-    [/^accept/]: acceptCallback,
+    // TODO: вернуть notify_calendar callbacks после появления постоянного планировщика с taskId и timezone пользователя.
+    // ['notify_calendar--later']: checkAuth(notifyDice),
+    // ['notify_calendar--60']: checkAuth(notifyNextHour),
+    // ['notify_calendar--next-day']: checkAuth(notifyNextDay),
 
     // ['business_message']: () => {
     //   console.log('business_message');
@@ -114,7 +118,6 @@ const { middleware, bot } = botController({
     //   console.log('deleted_business_messages');
     // },
   },
-
   // Групповые команды
   publicEvents: {
     ['bot_command']: () => {
@@ -125,9 +128,9 @@ const { middleware, bot } = botController({
 
     ['channel_post']: channelPostAction,
     ['inline_query']: inlineAction,
-    ['mention']: mentionAction,
-    ['text']: groupTextAction,
-    ['reply_to_message']: () => {},
+    // TODO: подключить mention после определения прав доступа и формата прямого вызова ассистента в группе.
+    // TODO: подключить group text после определения условий ответа бота и изоляции истории группового чата.
+    // TODO: подключить reply_to_message в группе после определения маршрутизации ответа и прав участников.
 
     /* GROUP COMMANDS */
 
@@ -144,18 +147,6 @@ const { middleware, bot } = botController({
     ['video_chat_ended']: () => {
       console.log('video_chat_ended');
     },
-
-    /* CALLBACK */
-
-    ['approve_event']: async (activity, message, bot) => {
-      await bot.answerCallbackQuery(message.id, {
-        text: 'Идет обработка...',
-        show_alert: false,
-      });
-      console.log('WIP: approve_event');
-    },
-
-    [/^meeting_rsvp:\d+:(accept|reject)$/]: errorHandler(meetingRsvpAction),
   },
 
   onError(bot, error) {
@@ -163,48 +154,7 @@ const { middleware, bot } = botController({
   },
 });
 
-bot.on('message', async (message, activity) => {
-  message = Array.isArray(message) ? message[0] : message;
-  let user = userRepository.findById(message.chat.id);
-  if (!user) {
-    await container.user.ensureUser({
-      telegramId: message.chat.id,
-      language: message.from.language_code,
-    });
-    user = userRepository.findById(message.chat.id);
-  }
-
-  if (message.location) {
-    activity.object = [
-      {
-        type: 'Point',
-        content: {
-          type: 'Feature',
-          geometry: {
-            type: 'Point',
-            coordinates: [message.location.latitude, message.location.longitude],
-          },
-        },
-        mediaType: 'application/geo+json',
-      },
-    ];
-    if (message.location?.caption) {
-      activity.object.push({
-        type: 'Note',
-        content: message.location.caption,
-        mediaType: 'text/plain',
-      });
-    }
-  }
-  // const botInfo = await bot.getMe();
-  // if (botInfo.is_bot) {
-  //   activity.origin.name = botInfo.first_name;
-  //   activity.origin.url = 'https://t.me/' + botInfo.username;
-  // }
-
-  message.activity = activity;
-  message.user = user;
-});
+registerCallbackQueryHandlers(bot);
 
 export { bot };
 export default middleware;

@@ -83,6 +83,42 @@ npm run test
 ncu -u
 ```
 
+### Secretary API types
+
+`SecretaryGateway` imports generated types from the package root `api.d.ts`.
+They are generated from the checked-in OpenAPI snapshot at
+`openapi/secretary.json`; `redocly.yaml` defines the input and output. The
+generated file is ignored by Git, and the types stay at the infrastructure
+boundary instead of entering the domain layer.
+
+Run these commands from the standalone TG repository root:
+
+```bash
+npm install --ignore-scripts
+npm run generate:api
+npm run check:api
+npm run lint
+```
+
+Generation uses the checked-in snapshot and does not need the private Secretary
+core, a parent repository, a running server, a database, Docker, or network
+access. Node 26 strips erasable TypeScript syntax when running the source, but
+does not perform static type checking. `check:api` checks that an existing
+`api.d.ts` matches the snapshot without writing files; run `generate:api` first
+from a clean checkout.
+
+To update the API contract, obtain the OpenAPI JSON for the agreed API version
+from its provider, replace `openapi/secretary.json`, then run `generate:api`,
+`check:api`, and lint. Review the snapshot and the locally generated types.
+Commit the snapshot; regenerate `api.d.ts` when needed. A core
+release can change API descriptions; TG owns its snapshot and updates it
+deliberately when adopting a compatible API.
+
+JSON-RPC parameter and result schemas are supplied by the API contract. Results
+for methods without a specific schema, and responses requested with arbitrary
+`Accept` headers, remain `unknown`. These compile-time types do not validate
+external responses at runtime.
+
 #### Fix lint
 
 ```bash

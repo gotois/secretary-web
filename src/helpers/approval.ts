@@ -1,4 +1,7 @@
 export type ApprovalType = 'accept' | 'reject';
+export type BotCallback =
+  | { kind: 'meeting-rsvp'; taskId: number; type: ApprovalType }
+  | { kind: 'approval'; taskId: number; type: ApprovalType };
 
 /**
  * @description Extracts a numeric task id from an id or task URL.
@@ -23,8 +26,26 @@ export function parseApprovalCallback(data: string): { type: ApprovalType; taskI
     throw new Error('Некорректный ответ на приглашение');
   }
 
+  const taskId = getTaskIdFromReference(taskReference);
+  if (!Number.isSafeInteger(taskId) || taskId <= 0) {
+    throw new Error('Некорректный идентификатор приглашения');
+  }
   return {
     type,
-    taskId: getTaskIdFromReference(taskReference),
+    taskId,
   };
+}
+
+export function parseBotCallback(data: string): BotCallback | undefined {
+  const [action, taskId, decision, extra] = data.split(':');
+  const numericTaskId = Number(taskId);
+  if (!Number.isSafeInteger(numericTaskId) || numericTaskId <= 0 || extra !== undefined) {
+    return;
+  }
+  if (action === 'meeting_rsvp' && (decision === 'accept' || decision === 'reject')) {
+    return { kind: 'meeting-rsvp', taskId: numericTaskId, type: decision };
+  }
+  if (decision === undefined && (action === 'accept' || action === 'reject')) {
+    return { kind: 'approval', taskId: numericTaskId, type: action };
+  }
 }

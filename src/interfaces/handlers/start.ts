@@ -27,15 +27,12 @@ const getInstallAgainText = (): string => {
  */
 export default async (activity, message, bot) => {
   const state = container.getStartState.execute({
-    accessToken: message.user?.access_token,
-    expiredAt: message.user?.expired_at,
+    accessToken: message.user?.accessToken,
+    expiredAt: message.user?.expiredAt,
     timezone: message.user?.timezone,
   });
 
   if (state === 'authorized') {
-    // todo - делать дополнительную проверку доступности через ping
-    // ...
-
     await bot.sendMessage(message.chat.id, getInstallAgainText(), {
       parse_mode: 'MarkdownV2',
       disable_notification: false,

@@ -1,13 +1,25 @@
 import type { NextFunction, Request, Response } from 'express';
-import { secretaryGateway } from '../../app/container.ts';
+import { secretaryGateway, telegramEventRepository } from '../../app/container.ts';
 import { bot } from '../../interfaces/bot.ts';
 import { formatTelegramGroupMeeting, getTelegramGroupMeetingReplyMarkup } from '../../helpers/telegram-markup.ts';
 import { GROUP_ADMIN_STATUSES } from '../../helpers/telegram-user-statuses.ts';
+import { canManageGroupTargets, getGroupTargets, normalizeTargets } from './targets.ts';
 
 export default async (request: Request, response: Response, next: NextFunction): Promise<Response> => {
   try {
     const { remind_before: remindBefore, target, messageId, ...event } = request.body;
-    if (!event.id_task) {
+    if (
+      remindBefore !== undefined &&
+      remindBefore !== null &&
+      (typeof remindBefore !== 'number' || !Number.isFinite(remindBefore) || remindBefore < 0)
+    ) {
+      return response.status(400).send('Invalid remind_before');
+    }
+    const targets = normalizeTargets(target);
+    if (!targets) {
+      return response.status(400).send('Invalid event target');
+    }
+    if (!Number.isSafeInteger(event.id_task) || event.id_task <= 0) {
       return response.status(400).send('Updated event id is missing');
     }
     const startDate = new Date(event.start_date);
@@ -18,6 +30,42 @@ export default async (request: Request, response: Response, next: NextFunction):
       return response.status(400).send('Нельзя обновить событие: время начала уже прошло');
     }
     const tz = request.get('Timezone');
+    const storedGroupTargets = telegramEventRepository
+      .getTelegramEventsByTaskId(event.id_task)
+      .filter((telegramEvent) => {
+        return telegramEvent.type === 'Group';
+      })
+      .map((telegramEvent) => {
+        return {
+          type: 'Group' as const,
+          id: telegramEvent.chatId,
+          messageId: telegramEvent.messageId,
+          name: telegramEvent.name,
+        };
+      });
+    const groupTargets = [
+      ...new Map(
+        [...getGroupTargets(targets), ...storedGroupTargets].map((groupTarget) => {
+          return [`${groupTarget.id}:${groupTarget.messageId ?? ''}`, groupTarget];
+        }),
+      ).values(),
+    ];
+    const groupsToAuthorize = [
+      ...new Map(
+        groupTargets.map((groupTarget) => {
+          return [groupTarget.id, groupTarget];
+        }),
+      ).values(),
+    ];
+    const telegramUserId = request.user?.id;
+    if (
+      groupsToAuthorize.length > 0 &&
+      (!Number.isSafeInteger(telegramUserId) ||
+        telegramUserId === 0 ||
+        !(await canManageGroupTargets(groupsToAuthorize, telegramUserId, bot, GROUP_ADMIN_STATUSES)))
+    ) {
+      return response.status(403).send('Настраивать встречу могут только админы группы.');
+    }
 
     const rpcResponse = await secretaryGateway.call({
       method: 'edit',
@@ -38,7 +86,7 @@ export default async (request: Request, response: Response, next: NextFunction):
           name: event.name,
           description: event.description,
           year: reminderDate.getFullYear(),
-          month: reminderDate.getMonth() + 1,
+          month: (reminderDate.getMonth() + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12,
           day_of_month: reminderDate.getDate(),
           hour: reminderDate.getHours(),
           minute: reminderDate.getMinutes(),
@@ -53,36 +101,27 @@ export default async (request: Request, response: Response, next: NextFunction):
       }
     }
 
-    for (const t of target) {
-      if (!t) {
-        continue;
-      }
-      if (t.type === 'Group') {
-        const chatMember = await bot.getChatMember(t.id, request.user?.id);
-        if (!GROUP_ADMIN_STATUSES.has(chatMember.status)) {
-          return response.status(403).send('Настраивать встречу могут только админы группы.');
-        }
-        if (t.messageId) {
-          try {
-            await bot.editMessageText(formatTelegramGroupMeeting(event, tz), {
-              chat_id: t.id,
-              message_id: t.messageId,
-              reply_markup: getTelegramGroupMeetingReplyMarkup({
-                chatId: t.id,
-                messageId: t.messageId,
-                taskId: rpcResponse.result?.id_task,
-              }),
-            });
-          } catch (error) {
-            const isMessageNotModified =
-              error instanceof Error &&
-              'code' in error &&
-              error.code === 'ETELEGRAM' &&
-              error.message.includes('message is not modified');
+    for (const t of groupTargets) {
+      if (t.messageId) {
+        try {
+          await bot.editMessageText(formatTelegramGroupMeeting(event, tz), {
+            chat_id: t.id,
+            message_id: t.messageId,
+            reply_markup: getTelegramGroupMeetingReplyMarkup({
+              chatId: String(t.id),
+              messageId: String(t.messageId),
+              taskId: event.id_task,
+            }),
+          });
+        } catch (error) {
+          const isMessageNotModified =
+            error instanceof Error &&
+            'code' in error &&
+            error.code === 'ETELEGRAM' &&
+            error.message.includes('message is not modified');
 
-            if (!isMessageNotModified) {
-              throw error;
-            }
+          if (!isMessageNotModified) {
+            throw error;
           }
         }
       }

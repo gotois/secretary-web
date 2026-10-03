@@ -1,4 +1,4 @@
-import ICalendar, { VAlarm, VEvent, VFreeBusy } from 'ical-browser';
+import ICalendar, { VAlarm, VEvent, VFreeBusy, type RuleDay } from 'ical-browser';
 import { encodeTaskUid, isTaskId } from './task-uid.ts';
 
 type BusyType = 'BUSY' | 'BUSY-TENTATIVE' | 'BUSY-UNAVAILABLE';
@@ -109,8 +109,8 @@ function optionalDate(value: unknown, field: string): Date | undefined {
  * @param mask - битовая маска от понедельника до воскресенья
  * @returns дни недели RRULE
  */
-function recurrenceWeekdays(mask: number | null | undefined): string[] {
-  const days = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+function recurrenceWeekdays(mask: number | null | undefined): RuleDay[] {
+  const days: RuleDay[] = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
   return days.filter((_day, index) => {
     return (mask ?? 0) & (1 << index);
   });
@@ -162,17 +162,20 @@ function toRecurrenceRule(recurrence: SubscriptionRecurrence | null | undefined)
   }
 
   return {
-    freq: recurrenceFrequency(recurrence.recurrence_type),
+    // Preserve sub-daily frequencies supported by the writer but absent from its types.
+    freq: recurrenceFrequency(recurrence.recurrence_type) as NonNullable<EventInput['rrule']>['freq'],
     count: recurrence.count,
     interval: recurrence.interval,
-    until: optionalDate(recurrence.until, 'recurrence until'),
+    until: recurrence.until
+      ? Temporal.Instant.fromEpochMilliseconds(toDate(recurrence.until, 'recurrence until').getTime())
+      : undefined,
     wkst: 'MO',
     byday: recurrenceWeekdays(recurrence.weekdays),
     bymonthday: recurrence.day_of_month ?? undefined,
     bymonth: recurrence.month ?? undefined,
     byhour: recurrence.hour ?? undefined,
     byminute: recurrence.minute ?? undefined,
-  } as EventInput['rrule'];
+  };
 }
 
 /**
@@ -255,8 +258,8 @@ function toEvent(task: SubscriptionTask): VEvent {
     uid: encodeTaskUid(task.id_task),
     summary: task.name,
     description: task.description,
-    start,
-    end,
+    start: Temporal.Instant.fromEpochMilliseconds(start.getTime()),
+    end: end ? Temporal.Instant.fromEpochMilliseconds(end.getTime()) : undefined,
     location: task.location,
     url: optionalUrl(task.link_meeting),
     geo: task.latitude === undefined || task.longitude === undefined ? undefined : [task.latitude, task.longitude],
@@ -268,13 +271,15 @@ function toEvent(task: SubscriptionTask): VEvent {
     status: EVENT_STATUSES.has(task.task_status_name ?? '')
       ? (task.task_status_name as EventInput['status'])
       : undefined,
-    lastModified: updatedAt,
+    lastModified: updatedAt ? Temporal.Instant.fromEpochMilliseconds(updatedAt.getTime()) : undefined,
     ['x-emotional']: 'neutral',
     ['X-MICROSOFT-DISALLOW-COUNTER']: true,
     ...(updatedAt ? { ['X-MOZ-LASTACK']: updatedAt.toISOString().replaceAll(/[-:]|\.\d{3}/g, '') } : {}),
     transp: 'OPAQUE',
     organizer: task.id_user,
-    attendee: task.attendee as EventInput['attendee'],
+    attendee: task.attendee?.map(({ name, uri }) => {
+      return { name: name ?? '', uri };
+    }),
   });
 
   if (task.remind_before !== undefined) {
@@ -302,7 +307,13 @@ export function buildSubscriptionCalendar(input: BuildSubscriptionCalendarInput)
     }
     const start = toDate(task.start_date, 'start_date');
     const end = toDate(task.end_date, 'end_date');
-    return end > start ? [{ start, end, type: 'BUSY' }] : [];
+    if (end <= start) {
+      return [];
+    }
+    if (!task.recurrence) {
+      return end > input.start && start < input.end ? [{ start, end, type: 'BUSY' }] : [];
+    }
+    return getRecurringBusyPeriods(task.recurrence, start, end, input.start, input.end);
   });
   const busyPeriods = [...taskBusyPeriods, ...parseAvailabilityConflicts(input.availabilityConflicts)];
 
@@ -314,9 +325,15 @@ export function buildSubscriptionCalendar(input: BuildSubscriptionCalendarInput)
     generatedCalendar.addFreeBusy(
       new VFreeBusy({
         uid: `freebusy-${input.userId}`,
-        start: input.start,
-        end: input.end,
-        freeBusy: busyPeriods,
+        start: Temporal.Instant.fromEpochMilliseconds(input.start.getTime()),
+        end: Temporal.Instant.fromEpochMilliseconds(input.end.getTime()),
+        freeBusy: busyPeriods.map(({ start, end, type }) => {
+          return {
+            start: Temporal.Instant.fromEpochMilliseconds(start.getTime()),
+            end: Temporal.Instant.fromEpochMilliseconds(end.getTime()),
+            type,
+          };
+        }),
       }),
     );
   }
@@ -324,4 +341,42 @@ export function buildSubscriptionCalendar(input: BuildSubscriptionCalendarInput)
     generatedCalendar.addEvent(toEvent(task));
   }
   return generatedCalendar.ics;
+}
+
+function getRecurringBusyPeriods(
+  recurrence: SubscriptionRecurrence,
+  eventStart: Date,
+  eventEnd: Date,
+  periodStart: Date,
+  periodEnd: Date,
+): BusyPeriod[] {
+  const duration = eventEnd.getTime() - eventStart.getTime();
+  const rule = new ICAL.Recur({
+    freq: recurrenceFrequency(recurrence.recurrence_type),
+    interval: recurrence.interval,
+    ...(recurrence.count === undefined ? {} : { count: recurrence.count }),
+    ...(recurrence.until ? { until: ICAL.Time.fromJSDate(toDate(recurrence.until, 'recurrence until'), true) } : {}),
+    ...(recurrence.weekdays === undefined || recurrence.weekdays === null
+      ? {}
+      : { byday: recurrenceWeekdays(recurrence.weekdays) }),
+    ...(recurrence.day_of_month === undefined || recurrence.day_of_month === null
+      ? {}
+      : { bymonthday: [recurrence.day_of_month] }),
+    ...(recurrence.month === undefined || recurrence.month === null ? {} : { bymonth: [recurrence.month] }),
+    ...(recurrence.hour === undefined || recurrence.hour === null ? {} : { byhour: [recurrence.hour] }),
+    ...(recurrence.minute === undefined || recurrence.minute === null ? {} : { byminute: [recurrence.minute] }),
+  });
+  const iterator = rule.iterator(ICAL.Time.fromJSDate(eventStart, true));
+  const periods: BusyPeriod[] = [];
+  for (let occurrence = iterator.next(); occurrence; occurrence = iterator.next()) {
+    const start = occurrence.toJSDate();
+    if (start >= periodEnd) {
+      break;
+    }
+    const end = new Date(start.getTime() + duration);
+    if (end > periodStart) {
+      periods.push({ start, end, type: 'BUSY' });
+    }
+  }
+  return periods;
 }

@@ -11,7 +11,7 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "allowJs": true,
-    "types": ["node", "temporal-spec/global"]
+    "types": ["node"]
   },
   "include": ["src/**/*", "bin/**/*", "tests/**/*"],
   "exclude": ["node_modules"]

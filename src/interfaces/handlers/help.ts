@@ -6,7 +6,8 @@ const getCheckSum = (
   algorithm = 'md5',
   encoding: crypto.BinaryToTextEncoding = 'hex',
 ): string => {
-  return crypto.createHash(algorithm).update(buffer, 'utf8').digest(encoding);
+  const hash = crypto.createHash(algorithm);
+  return (typeof buffer === 'string' ? hash.update(buffer, 'utf8') : hash.update(buffer)).digest(encoding);
 };
 
 // Помощь

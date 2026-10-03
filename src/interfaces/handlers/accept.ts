@@ -1,8 +1,7 @@
-import { userRepository, secretaryGateway } from '../../app/container.ts';
+import { secretaryGateway } from '../../app/container.ts';
 import { parseApprovalCallback } from '../../helpers/approval.ts';
 
 export default async (activity, message, bot) => {
-  const user = userRepository.findById(message.chat.id);
   const { type, taskId } = parseApprovalCallback(message.data);
 
   await bot.answerCallbackQuery(message.id, {
@@ -13,7 +12,7 @@ export default async (activity, message, bot) => {
   const { result } = await secretaryGateway.call({
     method: 'approval',
     params: { id_task: taskId, type },
-    accessToken: user.accessToken,
+    accessToken: message.user.accessToken,
   });
   if (!result) {
     return;

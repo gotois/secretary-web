@@ -18,7 +18,7 @@ export default async function calendarSubscriptionController(
     const referenceDate = new Date();
     const timeZone = request.user?.timezone ?? 'UTC';
     const { start, end } = getSubscriptionPeriod(referenceDate, timeZone);
-    const parameters = { start_date: start, end_date: end };
+    const parameters = { start_date: start.toISOString(), end_date: end.toISOString() };
     const [tasksResponse, availabilityResponse] = await Promise.all([
       secretaryGateway.call({
         method: 'show',

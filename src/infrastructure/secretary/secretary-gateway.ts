@@ -1,7 +1,26 @@
 import { randomUUID } from 'node:crypto';
-import jsonRpc, { type JSONRPCResponse } from 'request-json-rpc2';
-import { unpack } from 'zip-pack-unpack';
-import { assistantGateway } from '../../app/container.ts';
+import jsonRpc, { type JSONRPCErrorResponse } from 'request-json-rpc2';
+import type { paths } from '../../../api.d.ts';
+
+type RpcMethod = {
+  [Path in keyof paths]: Path extends `/rpc/${infer Method}` ? Method : never;
+}[keyof paths];
+type RpcOperation<Method extends RpcMethod> = paths[`/rpc/${Method}`]['post'];
+type RpcParameters<Method extends RpcMethod> =
+  RpcOperation<Method>['requestBody']['content']['application/json']['params'];
+type RpcSuccess<Method extends RpcMethod> = RpcOperation<Method>['responses'][200]['content']['application/json'] & {
+  error?: never;
+};
+type RpcResponse<Method extends RpcMethod> = RpcSuccess<Method> | JSONRPCErrorResponse;
+type RpcInput<Method extends RpcMethod> = {
+  method: Method;
+  params: RpcParameters<NoInfer<Method>>;
+  accessToken: string;
+  geolocation?: string;
+  timezone?: string;
+};
+type TaskResponse = paths['/tasks/{id}']['get']['responses'][200]['content']['application/json'];
+type QueryOperation = paths['/tasks/query']['get'];
 
 export class SecretaryGateway {
   host: string;
@@ -10,8 +29,11 @@ export class SecretaryGateway {
     this.host = host;
   }
 
-  async getTask(input: { taskId: string; accessToken: string }): Promise<Record<string, unknown>> {
-    const response = await fetch(`${this.host}/tasks/${encodeURIComponent(input.taskId)}`, {
+  async getTask(input: {
+    taskId: paths['/tasks/{id}']['get']['parameters']['path']['id'];
+    accessToken: string;
+  }): Promise<TaskResponse> {
+    const response = await fetch(`${this.host}/tasks/${encodeURIComponent(String(input.taskId))}`, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
@@ -31,10 +53,10 @@ export class SecretaryGateway {
     accessToken,
     limit = 5,
   }: {
-    query: string;
+    query: QueryOperation['parameters']['query']['query'];
     accessToken: string;
-    limit?: number;
-  }): Promise<Record<string, unknown>[]> {
+    limit?: QueryOperation['parameters']['query']['limit'];
+  }): Promise<QueryOperation['responses'][200]['content']['application/json']> {
     const url = new URL(`${this.host}/tasks/query`);
     url.searchParams.set('query', query);
     url.searchParams.set('limit', String(limit));
@@ -51,37 +73,13 @@ export class SecretaryGateway {
     return response.json();
   }
 
-  async transcribe(input: { fileId: string }): Promise<string> {
-    const response = await fetch(`${this.host}/transcription/${input.fileId}`);
-    if (!response.ok) {
-      throw new Error('Ошибка Voice');
-    }
-
-    const text = await response.text();
-
-    return assistantGateway.vzor(text);
-  }
-
-  async process(input: { fileId: string }): Promise<{ url: string }> {
-    const url = `${this.host}/file/${input.fileId}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error('Ошибка File');
-    }
-    await (response.headers.get('content-type') === 'application/zip'
-      ? unpack(Buffer.from(await response.arrayBuffer()))
-      : assistantGateway.vzor(response));
-    return { url };
-  }
-
-  call(input: {
-    method: string;
-    params: Record<string, unknown>;
-    accessToken: string;
-    geolocation?: string;
-    timezone?: string;
-    accept?: string;
-  }): Promise<JSONRPCResponse> {
+  call<Method extends RpcMethod>(
+    input: RpcInput<Method> & { accept?: 'application/json' },
+  ): Promise<RpcResponse<Method>>;
+  call<Method extends RpcMethod>(
+    input: RpcInput<Method> & { accept: string },
+  ): Promise<(Omit<RpcSuccess<Method>, 'result'> & { result: unknown }) | JSONRPCErrorResponse>;
+  call<Method extends RpcMethod>(input: RpcInput<Method> & { accept?: string }): Promise<RpcResponse<Method>> {
     return jsonRpc({
       url: `${this.host}/rpc`,
       body: {
@@ -96,6 +94,6 @@ export class SecretaryGateway {
         Geolocation: input.geolocation,
         Timezone: input.timezone,
       },
-    });
+    }) as Promise<RpcResponse<Method>>;
   }
 }

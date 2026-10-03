@@ -1,37 +1,16 @@
-import { SECRETARY } from '#env';
-import { sendPrepareMessage } from '../../libs/tg-messages.ts';
 import { assistantGateway } from '../../app/container.ts';
+import { sendPrepareMessage } from '../../libs/tg-messages.ts';
 
-export default async (activity, message, bot) => {
+export default async function photoAction(activity, message, bot): Promise<void> {
   await sendPrepareMessage(activity, message, bot);
-
-  const url = `${SECRETARY.HOST}/file/${message.photo.photo_id}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error('Ошибка');
+  const photo = Array.isArray(message.photo) ? message.photo.at(-1) : undefined;
+  const url = photo?.file?.url;
+  if (typeof url !== 'string') {
+    throw new TypeError('Telegram не вернул ссылку на изображение');
   }
-
-  const query = await assistantGateway.vzor(response);
-
-  const type = 'text/markdown';
-  switch (type) {
-    case 'text/markdown': {
-      await bot.sendMessage(message.chat.id, query, {
-        parse_mode: 'MarkdownV2',
-        reply_to_message_id: message.message_id,
-        protect_content: true,
-      });
-      break;
-    }
-    case 'text/plain': {
-      await bot.sendMessage(message.chat.id, query, {
-        reply_to_message_id: message.message_id,
-        protect_content: true,
-      });
-      break;
-    }
-    default: {
-      throw new Error('Unknown type ' + type);
-    }
-  }
-};
+  const result = await assistantGateway.process({ url, mediaType: 'image/jpeg' });
+  await bot.sendMessage(message.chat.id, result.content, {
+    reply_to_message_id: message.message_id,
+    protect_content: true,
+  });
+}

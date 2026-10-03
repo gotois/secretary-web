@@ -1,4 +1,4 @@
-import { secretaryGateway, userRepository } from '../../app/container.ts';
+import { secretaryGateway } from '../../app/container.ts';
 
 const ANSWERS = {
   accept: 'Готово: иду',
@@ -13,11 +13,10 @@ const ANSWERS = {
  */
 export default async function (_activity, message, bot): Promise<void> {
   const [, taskId, type] = message.data.split(':');
-
-  const user = userRepository.findById(message.from.id);
-  if (!user?.accessToken) {
+  const numericTaskId = Number(taskId);
+  if (!Number.isSafeInteger(numericTaskId) || (type !== 'accept' && type !== 'reject')) {
     await bot.answerCallbackQuery(message.id, {
-      text: 'Сначала авторизуйтесь у бота через /start',
+      text: 'Некорректный ответ на приглашение',
       show_alert: true,
     });
     return;
@@ -26,8 +25,8 @@ export default async function (_activity, message, bot): Promise<void> {
   try {
     const rpcResponse = await secretaryGateway.call({
       method: 'approval',
-      params: { id_task: Number(taskId), type },
-      accessToken: user.accessToken,
+      params: { id_task: numericTaskId, type },
+      accessToken: message.user.accessToken,
     });
 
     if (rpcResponse.error) {

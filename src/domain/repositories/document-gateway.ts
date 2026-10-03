@@ -1,3 +1,6 @@
 export interface DocumentGateway {
-  process(input: { fileId: string }): Promise<{ url: string }>;
+  process(input: {
+    url: string;
+    mediaType?: string;
+  }): Promise<{ content: string; mediaType: 'text/markdown' | 'text/plain' }>;
 }

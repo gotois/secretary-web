@@ -4,19 +4,23 @@ import { userRepository } from '../../app/container.ts';
 import { getTaskIdFromReference } from '../../helpers/approval.ts';
 import { linkPayload } from '../../libs/tg-messages.ts';
 import { SECRETARY } from '#env';
+import { getActivity } from '../../helpers/activity.ts';
 
 export default async (request: Request, response: Response): Promise<Response> => {
-  const activity = request.body?.credentialSubject;
-  // TODO: валидировать ActivityPub payload и экранировать поля перед HTML/MarkdownV2.
-  // Сейчас код предполагает форму `actor`, `to`, `summaryMap` и может упасть или разметить
-  // пользовательский текст как Telegram-разметку.
+  const activity = getActivity(request.body);
   if (!activity) {
     return response.status(400).send('Validation Body Failed');
   }
 
   switch (activity.type) {
     case 'Create': {
+      if (!activity.object) {
+        return response.status(400).send('Validation Object Failed');
+      }
       const taskId = getTaskIdFromReference(activity.object);
+      if (!Number.isSafeInteger(taskId) || taskId <= 0) {
+        return response.status(400).send('Validation Task Failed');
+      }
       const keyboardEdit = {
         text: 'Изменить',
         web_app: {
@@ -29,10 +33,7 @@ export default async (request: Request, response: Response): Promise<Response> =
           console.warn(`User from ${to} not found!`);
           continue;
         }
-
-        // todo - данные нужно брать из тела activity.object.summaryMap.ru
-        await bot.sendMessage(user.id, `<a href="${activity.target}">Задача</a> создана`, {
-          parse_mode: 'HTML',
+        await bot.sendMessage(user.id, 'Задача создана', {
           reply_markup: {
             /* eslint-disable prettier/prettier */
             inline_keyboard: [
@@ -45,61 +46,64 @@ export default async (request: Request, response: Response): Promise<Response> =
       break;
     }
     case 'Accept': {
+      if (!activity.actor) {
+        return response.status(400).send('Validation Actor Failed');
+      }
       const actor = userRepository.findByActorId(activity.actor);
+      if (!actor) {
+        return response.status(400).send('Unknown Actor');
+      }
       for (const to of activity.to) {
         const user = userRepository.findByActorId(to);
         if (!user) {
           continue;
         }
-        await bot.sendMessage(user.id, `<a href="tg://user?id=${actor.id}">Пользователь</a> принял ваше предложение`, {
-          parse_mode: 'HTML',
-        });
+        await bot.sendMessage(user.id, `Пользователь ${actor.id} принял ваше предложение`);
       }
       break;
     }
     case 'Reject': {
+      if (!activity.actor) {
+        return response.status(400).send('Validation Actor Failed');
+      }
       const actor = userRepository.findByActorId(activity.actor);
+      if (!actor) {
+        return response.status(400).send('Unknown Actor');
+      }
       for (const to of activity.to) {
         const user = userRepository.findByActorId(to);
         if (!user) {
           continue;
         }
-        await bot.sendMessage(
-          user.id,
-          `<a href="tg://user?id=${actor.id}">Пользователь</a> отклонил ваше предложение`,
-          {
-            parse_mode: 'HTML',
-          },
-        );
+        await bot.sendMessage(user.id, `Пользователь ${actor.id} отклонил ваше предложение`);
       }
       break;
     }
     case 'Announce': {
-      if (new URL(activity.object).origin !== new URL(SECRETARY.HOST).origin) {
+      if (!activity.object || !activity.summaryMap?.ru) {
+        return response.status(400).send('Validation Announce Failed');
+      }
+      let objectUrl: URL;
+      try {
+        objectUrl = new URL(activity.object);
+      } catch {
+        return response.status(400).send('Validation Object Failed');
+      }
+      if (objectUrl.origin !== new URL(SECRETARY.HOST).origin) {
         throw new Error(`Пока поддерживается только анонс внутри сети "${SECRETARY.HOST}"`);
       }
+      const taskId = getTaskIdFromReference(activity.object);
+      if (!Number.isSafeInteger(taskId) || taskId <= 0) {
+        return response.status(400).send('Validation Task Failed');
+      }
 
-      /*
-      const keyboardLater = {
-        text: 'Напомнить позже',
-        callback_data: 'notify_calendar--later',
-      };
-      const keyboardLater60 = {
-        text: 'Напомнить через 1 час',
-        callback_data: 'notify_calendar--60',
-      };
-      const keyboardLaterTomorrow = {
-        text: 'Напомнить завтра',
-        callback_data: 'notify_calendar--next-day',
-      };
-      */
+      // TODO: вернуть кнопки напоминаний после появления постоянного планировщика с taskId и timezone пользователя.
       for (const to of activity.to) {
         const user = userRepository.findByActorId(to);
         if (!user) {
           console.warn(`User from ${to} not found!`);
           continue;
         }
-        const taskId = getTaskIdFromReference(activity.object);
         const keyboardOpen = {
           text: 'Посмотреть',
           web_app: {
@@ -109,14 +113,10 @@ export default async (request: Request, response: Response): Promise<Response> =
 
         await bot.sendMessage(user.id, activity.summaryMap.ru, {
           protect_content: true,
-          parse_mode: 'Markdown',
           reply_markup: {
             /* eslint-disable prettier/prettier */
             inline_keyboard: [
               [keyboardOpen],
-              // todo починить возможность напоминания на позже
-              // [keyboardLater, keyboardLater60],
-              // [keyboardLaterTomorrow],
             ],
             /* eslint-enable */
           },
@@ -125,7 +125,13 @@ export default async (request: Request, response: Response): Promise<Response> =
       break;
     }
     case 'Offer': {
+      if (!activity.object || !activity.summaryMap?.ru) {
+        return response.status(400).send('Validation Offer Failed');
+      }
       const taskId = getTaskIdFromReference(activity.object);
+      if (!Number.isSafeInteger(taskId) || taskId <= 0) {
+        return response.status(400).send('Validation Task Failed');
+      }
       const keyboardOpen = {
         text: 'Посмотреть',
         web_app: {
@@ -151,7 +157,6 @@ export default async (request: Request, response: Response): Promise<Response> =
         }
         await bot.sendMessage(user.id, activity.summaryMap.ru, {
           protect_content: true,
-          parse_mode: 'MarkdownV2',
           reply_markup: {
             /* eslint-disable prettier/prettier */
             inline_keyboard: [

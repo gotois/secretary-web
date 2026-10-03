@@ -17,24 +17,35 @@ interface GoogleTokenResponse {
  * @param {string} ical - iCal данные события
  * @returns Объект события
  */
-function convertIcalToEvent(ical: string) {
+export function convertIcalToEvent(ical: string) {
   const component = new ICAL.Component(ICAL.parse(ical));
-  const event = component.getFirstSubcomponent('vevent');
+  for (const timezone of component.getAllSubcomponents('vtimezone')) {
+    ICAL.TimezoneService.register(timezone);
+  }
+  const eventComponent = component.getFirstSubcomponent('vevent');
+  if (!eventComponent) {
+    throw new Error('iCalendar object does not contain VEVENT');
+  }
+  const event = new ICAL.Event(eventComponent);
+  if (!event.uid || !event.startDate) {
+    throw new Error('iCalendar event is missing UID or DTSTART');
+  }
+  const organizerValue = eventComponent.getFirstPropertyValue('organizer');
+  const organizer = typeof organizerValue === 'string' ? organizerValue : undefined;
+  const email = organizer?.toLowerCase().startsWith('mailto:') ? organizer.slice('mailto:'.length) : organizer;
+  const actor = email ? { type: 'Person', email } : { type: 'Person' };
 
   return {
     type: 'Event',
-    id: 'https://api.gotointeractive.com/events/' + event.getFirstPropertyValue('uid'),
-    startTime: event.getFirstPropertyValue<ICAL.Time>('dtstart').toString().replace('Z', ''),
-    endTime: event.getFirstPropertyValue<ICAL.Time>('dtend').toString().replace('Z', ''),
-    name: event.getFirstPropertyValue('summary'),
-    summary: event.getFirstPropertyValue('description'),
-    url: event.getFirstPropertyValue('url') || null,
-    location: event.getFirstPropertyValue('location') || null,
-    actor: {
-      type: 'Person',
-      email: component.getFirstProperty('x-wr-calname').getValues()[0],
-    },
-    target: event.getAllProperties('attendee').map((attendee) => {
+    id: 'https://api.gotointeractive.com/events/' + event.uid,
+    startTime: event.startDate.toJSDate().toISOString(),
+    endTime: event.endDate.toJSDate().toISOString(),
+    name: event.summary,
+    summary: event.description,
+    url: eventComponent.getFirstPropertyValue('url') || null,
+    location: event.location || null,
+    actor,
+    target: eventComponent.getAllProperties('attendee').map((attendee) => {
       return {
         type: 'Organization',
         name: attendee.getFirstValue(),

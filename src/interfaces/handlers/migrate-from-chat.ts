@@ -1,8 +1,8 @@
 import { container } from '../../app/container.ts';
 
-export default async (activity, message) => {
-  await container.removeGroup.execute({ groupId: message.migrate_from_chat_id });
-  await container.registerGroup.execute({
+export default (activity, message) => {
+  container.group.delete({ groupId: message.migrate_from_chat_id });
+  container.group.save({
     id: message.chat.id,
     title: message.chat.title ?? '',
   });

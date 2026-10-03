@@ -24,12 +24,12 @@ export const DATABASE = {
   AGENT: IS_DEV ? ':memory:' : path.resolve('./database/agent.sqlite'),
 };
 export const LLM = {
-  MODEL: 'ai/gemma4:E2B',
-  // TODO: вынести local Docker endpoint, ключ и модель в конфигурацию
-  URL: 'http://localhost:12434/engines/v1',
+  MODEL: environment.LLM_MODEL ?? 'ai/gemma4:E2B',
+  URL: environment.LLM_URL ?? 'http://localhost:12434/engines/v1',
+  API_KEY: environment.LLM_API_KEY,
 };
 export const AGENT = {
-  MODEL: 'yandexgpt-lite',
+  MODEL: environment.AGENT_MODEL ?? 'yandexgpt-lite',
   MEMORY: DATABASE.AGENT,
   YC_API_KEY: environment.YC_API_KEY,
   YC_IAM_TOKEN: environment.YC_IAM_TOKEN,
@@ -40,6 +40,7 @@ export const SERVER = {
 };
 export const VOSK = {
   URL: environment.VOSK_RECOGNIZE_URL,
+  TIMEOUT_MS: Number(environment.VOSK_TIMEOUT_MS ?? 30_000),
 };
 export const SECRETARY = {
   MCP: `${environment.SECRETARY_HOST}/mcp`,

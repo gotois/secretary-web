@@ -28,11 +28,12 @@ export default async (
     }
 
     const data = await secretaryGateway.getTask({
-      taskId: String(taskId),
+      taskId,
       accessToken: request.user?.access_token,
     });
 
-    const telegramEvent = telegramEventRepository.getTelegramEventByTaskId(taskId);
+    const telegramEvents = telegramEventRepository.getTelegramEventsByTaskId(taskId);
+    const [telegramEvent] = telegramEvents;
     if (!telegramEvent) {
       return response.json(data);
     }
@@ -43,6 +44,14 @@ export default async (
       messageId: telegramEvent.messageId,
       targetName: telegramEvent.name,
       targetType: telegramEvent.type,
+      targets: telegramEvents.map((event) => {
+        return {
+          chatId: event.chatId,
+          messageId: event.messageId,
+          targetName: event.name,
+          targetType: event.type,
+        };
+      }),
     });
   } catch (error) {
     next(error);

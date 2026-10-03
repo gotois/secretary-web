@@ -1,7 +1,8 @@
 import type { PostAuthorizationGateway } from '../../domain/repositories/post-authorization-gateway.ts';
 
-// todo refactor
 export class SecretaryPostAuthorizationGateway implements PostAuthorizationGateway {
+  private readonly host: string;
+
   constructor(host: string) {
     this.host = host;
   }

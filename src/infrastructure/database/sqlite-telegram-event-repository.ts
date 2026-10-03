@@ -43,22 +43,31 @@ export class SqliteTelegramEventRepository {
       .run(event.chatId, event.messageId, event.taskId, event.name, event.type);
   }
 
-  getTelegramEventByTaskId(taskId: number): TelegramEvent | undefined {
-    // TODO: определить cardinality задачи и чатов. LIMIT 1 молча теряет остальные
-    // сообщения, если одна задача была отправлена в несколько Telegram-групп.
-    const event = this.#database
-      .prepare('SELECT chat_id, message_id, task_id, name, type FROM telegram_events WHERE task_id = ? LIMIT 1')
-      .get(taskId) as TelegramEventRow | undefined;
-    if (!event) {
-      return;
-    }
-
-    return {
-      chatId: event.chat_id,
-      messageId: event.message_id,
-      taskId: event.task_id,
-      name: event.name,
-      type: event.type,
-    };
+  getTelegramEventsByTaskId(taskId: number): TelegramEvent[] {
+    const events = this.#database
+      .prepare('SELECT chat_id, message_id, task_id, name, type FROM telegram_events WHERE task_id = ?')
+      .all(taskId) as TelegramEventRow[];
+    return events.map((event) => {
+      return toTelegramEvent(event);
+    });
   }
+
+  getTelegramEvent(chatId: number, messageId: number): TelegramEvent | undefined {
+    const event = this.#database
+      .prepare(
+        'SELECT chat_id, message_id, task_id, name, type FROM telegram_events WHERE chat_id = ? AND message_id = ?',
+      )
+      .get(chatId, messageId) as TelegramEventRow | undefined;
+    return event ? toTelegramEvent(event) : undefined;
+  }
+}
+
+function toTelegramEvent(event: TelegramEventRow): TelegramEvent {
+  return {
+    chatId: event.chat_id,
+    messageId: event.message_id,
+    taskId: event.task_id,
+    name: event.name,
+    type: event.type,
+  };
 }

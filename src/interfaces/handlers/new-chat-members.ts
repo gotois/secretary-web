@@ -11,7 +11,7 @@ export default async (activity, message, bot) => {
     return;
   }
 
-  await container.registerGroup.execute({
+  container.group.save({
     id: message.chat.id,
     title: message.chat.title ?? '',
   });

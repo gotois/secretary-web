@@ -46,8 +46,10 @@ export default async (request: Request, response: Response, next: NextFunction):
     const chatIds = [
       ...new Set(
         taskIds
-          .map((taskId: number) => {
-            return telegramEventRepository.getTelegramEventByTaskId(taskId)?.chatId;
+          .flatMap((taskId: number) => {
+            return telegramEventRepository.getTelegramEventsByTaskId(taskId).map((event) => {
+              return event.chatId;
+            });
           })
           .filter((chatId: number | undefined): chatId is number => {
             return chatId !== undefined;

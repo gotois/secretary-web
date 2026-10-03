@@ -31,8 +31,6 @@ import {
   updatePodCalendar,
   updatePodProfile,
 } from '#controllers/pod/index';
-import fileController from '#controllers/file/get';
-import transcriptionController from '#controllers/transcription/get';
 import webhookController from '#controllers/webhook/post';
 import { sessionStore } from './container.ts';
 
@@ -101,8 +99,6 @@ export function createServer(): Express {
   app.get('/pod/contracts/:name', getUserMiddleware, getPodContract);
   app.delete('/pod/contracts', getUserMiddleware, deletePodContracts);
   app.put('/pod/calendar', express.json(), getUserMiddleware, updatePodCalendar);
-  app.get('/file/:file_id', fileController);
-  app.get('/transcription/:file_id', transcriptionController);
   app.post('/webhook', vcLdJsonParser, verifyCredential, webhookController);
   return app;
 }

@@ -6,7 +6,7 @@ const messageText = String.raw`Приветствую\!
 Буду помогать создавать события\.`;
 
 export default async (activity, message, bot) => {
-  await container.registerGroup.execute({
+  container.group.save({
     id: message.chat.id,
     title: message.chat.title ?? '',
   });
