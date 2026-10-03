@@ -62,7 +62,7 @@ export default async (request: Request, response: Response, next: NextFunction):
     const needsActor =
       targets.length === 0 ||
       targets.some((item) => {
-        return item?.type === 'Person';
+        return item === null || item.type === 'Person';
       });
     if (needsActor && typeof actorId !== 'string') {
       return response.status(403).send('Unknown acct');
@@ -75,7 +75,7 @@ export default async (request: Request, response: Response, next: NextFunction):
               if (item?.type === 'Group') {
                 return [getTgGroupId(item.id)];
               }
-              return item?.type === 'Person' && actorId ? [actorId] : [];
+              return (item === null || item.type === 'Person') && actorId ? [actorId] : [];
             }),
       ),
     ];

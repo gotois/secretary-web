@@ -4,10 +4,11 @@ import { bot } from '../../interfaces/bot.ts';
 import { formatTelegramGroupMeeting, getTelegramGroupMeetingReplyMarkup } from '../../helpers/telegram-markup.ts';
 import { GROUP_ADMIN_STATUSES } from '../../helpers/telegram-user-statuses.ts';
 import { canManageGroupTargets, getGroupTargets, normalizeTargets } from './targets.ts';
+import { decodeTaskUid, isTaskId } from '../../helpers/task-uid.ts';
 
 export default async (request: Request, response: Response, next: NextFunction): Promise<Response> => {
   try {
-    const { remind_before: remindBefore, target, messageId, ...event } = request.body;
+    const { remind_before: remindBefore, target, messageId, uid_task: taskUid, ...event } = request.body;
     if (
       remindBefore !== undefined &&
       remindBefore !== null &&
@@ -19,9 +20,11 @@ export default async (request: Request, response: Response, next: NextFunction):
     if (!targets) {
       return response.status(400).send('Invalid event target');
     }
-    if (!Number.isSafeInteger(event.id_task) || event.id_task <= 0) {
+    const taskId = taskUid === undefined ? event.id_task : decodeTaskUid(taskUid);
+    if (!isTaskId(taskId) || (taskUid !== undefined && event.id_task !== undefined && event.id_task !== taskId)) {
       return response.status(400).send('Updated event id is missing');
     }
+    event.id_task = taskId;
     const startDate = new Date(event.start_date);
     if (Number.isNaN(startDate.getTime())) {
       return response.status(400).send('Дата начала события указана неверно');

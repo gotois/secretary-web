@@ -45,6 +45,7 @@
     "commit": "git-cz",
     "publish": "echo 'Publishing is disabled' && exit 1",
     "pretest": "eslint . && npm run lint:dependency && npm run lint:markdown",
+    "test:integration": "node --test --experimental-test-module-mocks \"tests/integration/*.integration.ts\"",
     "test": "mkdir -p reports && c8 --reports-dir=reports --reporter=lcov --reporter=text-summary --extension=.ts --all --src=src ava tests/unit",
     "dev": "node -r dotenv/config ./bin/server.ts --port=8888 --local",
     "dev:docs": "cd docs/ ; bundle exec jekyll serve",
