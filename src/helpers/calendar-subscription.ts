@@ -105,6 +105,22 @@ function optionalDate(value: unknown, field: string): Date | undefined {
 }
 
 /**
+ * Преобразует момент в формат iCalendar UTC DATE-TIME.
+ * @param value - дата и время
+ * @returns компактное UTC-значение
+ */
+function formatICalUtcDateTime(value: Date): string {
+  const dateTime = Temporal.Instant.fromEpochMilliseconds(value.getTime()).toZonedDateTimeISO('UTC');
+  const year = String(dateTime.year).padStart(4, '0');
+  const month = String(dateTime.month).padStart(2, '0');
+  const day = String(dateTime.day).padStart(2, '0');
+  const hour = String(dateTime.hour).padStart(2, '0');
+  const minute = String(dateTime.minute).padStart(2, '0');
+  const second = String(dateTime.second).padStart(2, '0');
+  return `${year}${month}${day}T${hour}${minute}${second}Z`;
+}
+
+/**
  * Преобразует битовую маску дней недели в значения RRULE.
  * @param mask - битовая маска от понедельника до воскресенья
  * @returns дни недели RRULE
@@ -274,7 +290,7 @@ function toEvent(task: SubscriptionTask): VEvent {
     lastModified: updatedAt ? Temporal.Instant.fromEpochMilliseconds(updatedAt.getTime()) : undefined,
     ['x-emotional']: 'neutral',
     ['X-MICROSOFT-DISALLOW-COUNTER']: true,
-    ...(updatedAt ? { ['X-MOZ-LASTACK']: updatedAt.toISOString().replaceAll(/[-:]|\.\d{3}/g, '') } : {}),
+    ...(updatedAt ? { ['X-MOZ-LASTACK']: formatICalUtcDateTime(updatedAt) } : {}),
     transp: 'OPAQUE',
     organizer: task.id_user,
     attendee: task.attendee?.map(({ name, uri }) => {
@@ -343,6 +359,15 @@ export function buildSubscriptionCalendar(input: BuildSubscriptionCalendarInput)
   return generatedCalendar.ics;
 }
 
+/**
+ * Рассчитывает занятые периоды повторяющейся задачи в пределах окна.
+ * @param recurrence - параметры повторения
+ * @param eventStart - начало исходного события
+ * @param eventEnd - конец исходного события
+ * @param periodStart - начало окна
+ * @param periodEnd - конец окна
+ * @returns занятые периоды
+ */
 function getRecurringBusyPeriods(
   recurrence: SubscriptionRecurrence,
   eventStart: Date,
@@ -350,33 +375,192 @@ function getRecurringBusyPeriods(
   periodStart: Date,
   periodEnd: Date,
 ): BusyPeriod[] {
+  if (!Number.isSafeInteger(recurrence.interval) || recurrence.interval < 1) {
+    throw new TypeError('show result contains an invalid recurrence interval');
+  }
   const duration = eventEnd.getTime() - eventStart.getTime();
-  const rule = new ICAL.Recur({
-    freq: recurrenceFrequency(recurrence.recurrence_type),
-    interval: recurrence.interval,
-    ...(recurrence.count === undefined ? {} : { count: recurrence.count }),
-    ...(recurrence.until ? { until: ICAL.Time.fromJSDate(toDate(recurrence.until, 'recurrence until'), true) } : {}),
-    ...(recurrence.weekdays === undefined || recurrence.weekdays === null
-      ? {}
-      : { byday: recurrenceWeekdays(recurrence.weekdays) }),
-    ...(recurrence.day_of_month === undefined || recurrence.day_of_month === null
-      ? {}
-      : { bymonthday: [recurrence.day_of_month] }),
-    ...(recurrence.month === undefined || recurrence.month === null ? {} : { bymonth: [recurrence.month] }),
-    ...(recurrence.hour === undefined || recurrence.hour === null ? {} : { byhour: [recurrence.hour] }),
-    ...(recurrence.minute === undefined || recurrence.minute === null ? {} : { byminute: [recurrence.minute] }),
-  });
-  const iterator = rule.iterator(ICAL.Time.fromJSDate(eventStart, true));
+  const frequency = recurrence.recurrence_type;
+  const interval = recurrence.interval;
+  const countLimit = recurrence.count;
+  const until = recurrence.until ? toDate(recurrence.until, 'recurrence until').getTime() : undefined;
+  const start = Temporal.Instant.fromEpochMilliseconds(eventStart.getTime());
+  const startDateTime = start.toZonedDateTimeISO('UTC');
+  const startDate = startDateTime.toPlainDate();
+  const startDateMs = eventStart.getTime();
+  const windowStartMs = periodStart.getTime();
+  const windowEndMs = periodEnd.getTime();
+  const earliestRelevantMs = windowStartMs - duration;
   const periods: BusyPeriod[] = [];
-  for (let occurrence = iterator.next(); occurrence; occurrence = iterator.next()) {
-    const start = occurrence.toJSDate();
-    if (start >= periodEnd) {
-      break;
+  let occurrenceCount = 0;
+
+  const addOccurrence = (dateTime: Temporal.PlainDateTime): boolean => {
+    const occurrence = dateTime.toZonedDateTime('UTC').toInstant();
+    const occurrenceMs = occurrence.epochMilliseconds;
+    if (occurrenceMs <= startDateMs) return true;
+    if (until !== undefined && occurrenceMs > until) return false;
+    if (countLimit !== undefined && occurrenceCount >= countLimit) return false;
+    occurrenceCount++;
+    if (occurrenceMs < windowEndMs && occurrenceMs + duration > windowStartMs) {
+      periods.push({
+        start: new Date(occurrenceMs),
+        end: new Date(occurrenceMs + duration),
+        type: 'BUSY',
+      });
     }
-    const end = new Date(start.getTime() + duration);
-    if (end > periodStart) {
-      periods.push({ start, end, type: 'BUSY' });
+    return countLimit === undefined || occurrenceCount < countLimit;
+  };
+
+  const initialOccurrenceIsValid = until === undefined || startDateMs <= until;
+  if (initialOccurrenceIsValid && (countLimit === undefined || countLimit > 0)) {
+    occurrenceCount = 1;
+    if (startDateMs < windowEndMs && startDateMs + duration > windowStartMs) {
+      periods.push({ start: eventStart, end: eventEnd, type: 'BUSY' });
     }
+  }
+  if (
+    !initialOccurrenceIsValid ||
+    eventStart >= periodEnd ||
+    (countLimit !== undefined && countLimit <= occurrenceCount)
+  ) {
+    return periods;
+  }
+
+  const weekdayMask = recurrence.weekdays ?? 0;
+  const dateMatches = (date: Temporal.PlainDate): boolean => {
+    if (recurrence.month !== undefined && recurrence.month !== null && date.month !== recurrence.month) return false;
+    if (weekdayMask !== 0 && !(weekdayMask & (1 << (date.dayOfWeek - 1)))) return false;
+
+    if (recurrence.day_of_month !== undefined && recurrence.day_of_month !== null) {
+      const monthDay =
+        recurrence.day_of_month < 0 ? date.daysInMonth + recurrence.day_of_month + 1 : recurrence.day_of_month;
+      if (date.day !== monthDay) return false;
+    } else if ((frequency === 6 || frequency === 7) && weekdayMask === 0 && date.day !== startDate.day) {
+      return false;
+    }
+
+    if (frequency === 5 && weekdayMask === 0 && date.dayOfWeek !== startDate.dayOfWeek) {
+      return false;
+    }
+    if (
+      frequency === 7 &&
+      (recurrence.month === undefined || recurrence.month === null) &&
+      weekdayMask === 0 &&
+      (recurrence.day_of_month === undefined || recurrence.day_of_month === null) &&
+      date.month !== startDate.month
+    ) {
+      return false;
+    }
+    return true;
+  };
+
+  if (frequency <= 3) {
+    let step = 3_600_000;
+    if (frequency === 1) step = 1000;
+    if (frequency === 2) step = 60_000;
+    const firstIndex =
+      countLimit === undefined ? Math.max(1, Math.floor((earliestRelevantMs - startDateMs) / (step * interval))) : 1;
+    const untilInstant = until === undefined ? undefined : Temporal.Instant.fromEpochMilliseconds(until);
+    for (let index = firstIndex; ; index++) {
+      const amount = interval * index;
+      let candidate: Temporal.Instant;
+      if (frequency === 1) {
+        candidate = start.add({ seconds: amount });
+      } else if (frequency === 2) {
+        candidate = start.add({ minutes: amount });
+      } else {
+        candidate = start.add({ hours: amount });
+      }
+      const candidateDateTime = candidate.toZonedDateTimeISO('UTC');
+      let minute = candidateDateTime.minute;
+      if (frequency === 3) minute = recurrence.minute ?? startDateTime.minute;
+      const occurrenceDateTime = new Temporal.PlainDateTime(
+        candidateDateTime.year,
+        candidateDateTime.month,
+        candidateDateTime.day,
+        candidateDateTime.hour,
+        minute,
+        candidateDateTime.second,
+        candidateDateTime.millisecond,
+      );
+      const occurrence = occurrenceDateTime.toZonedDateTime('UTC').toInstant();
+      if (
+        occurrence.epochMilliseconds >= windowEndMs ||
+        (untilInstant !== undefined && Temporal.Instant.compare(occurrence, untilInstant) > 0)
+      ) {
+        break;
+      }
+      const hourMatches =
+        recurrence.hour === undefined || recurrence.hour === null || occurrenceDateTime.hour === recurrence.hour;
+      const minuteMatches =
+        frequency === 3 ||
+        recurrence.minute === undefined ||
+        recurrence.minute === null ||
+        occurrenceDateTime.minute === recurrence.minute;
+      if (
+        hourMatches &&
+        minuteMatches &&
+        dateMatches(occurrenceDateTime.toPlainDate()) &&
+        !addOccurrence(occurrenceDateTime)
+      ) {
+        break;
+      }
+    }
+    return periods;
+  }
+
+  const targetStartDate =
+    countLimit === undefined
+      ? Temporal.Instant.fromEpochMilliseconds(earliestRelevantMs).toZonedDateTimeISO('UTC').toPlainDate()
+      : startDate;
+  const cursorStartDate = Temporal.PlainDate.compare(targetStartDate, startDate) < 0 ? startDate : targetStartDate;
+  const targetEndDate = Temporal.Instant.fromEpochMilliseconds(windowEndMs).toZonedDateTimeISO('UTC').toPlainDate();
+  for (let date = cursorStartDate; Temporal.PlainDate.compare(date, targetEndDate) <= 0; date = date.add({ days: 1 })) {
+    const elapsedDays = startDate.until(date, { largestUnit: 'days' }).days;
+    const elapsedMonths = (date.year - startDate.year) * 12 + date.month - startDate.month;
+    let activePeriod = false;
+    switch (frequency) {
+      case 4: {
+        activePeriod = elapsedDays % interval === 0;
+        break;
+      }
+      case 5: {
+        activePeriod = Math.floor((elapsedDays + startDate.dayOfWeek - 1) / 7) % interval === 0;
+        break;
+      }
+      case 6: {
+        activePeriod = elapsedMonths % interval === 0;
+        break;
+      }
+      default: {
+        activePeriod = (date.year - startDate.year) % interval === 0;
+      }
+    }
+    if (!activePeriod || !dateMatches(date)) continue;
+
+    const hour = recurrence.hour ?? startDateTime.hour;
+    const minute = recurrence.minute ?? startDateTime.minute;
+    const occurrence = new Temporal.PlainDateTime(
+      date.year,
+      date.month,
+      date.day,
+      hour,
+      minute,
+      startDateTime.second,
+      startDateTime.millisecond,
+    );
+    const occurrenceMs = occurrence.toZonedDateTime('UTC').epochMilliseconds;
+    if (occurrenceMs <= startDateMs) continue;
+    if (until !== undefined && occurrenceMs > until) break;
+
+    occurrenceCount++;
+    if (occurrenceMs < windowEndMs && occurrenceMs + duration > windowStartMs) {
+      periods.push({
+        start: new Date(occurrenceMs),
+        end: new Date(occurrenceMs + duration),
+        type: 'BUSY',
+      });
+    }
+    if (countLimit !== undefined && occurrenceCount >= countLimit) break;
   }
   return periods;
 }

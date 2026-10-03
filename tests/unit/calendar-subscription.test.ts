@@ -9,6 +9,7 @@ import type { SecretaryGateway } from '../../src/infrastructure/secretary/secret
 const task = {
   id_task: 42,
   name: 'Review',
+  updated_at: '2026-08-17T12:34:56.789+03:00',
   start_date: '2026-08-17T09:00:00.000Z',
   end_date: '2026-08-17T10:00:00.000Z',
   recurrence: {
@@ -41,6 +42,7 @@ test('buildSubscriptionCalendar combines RPC events and availability', (t) => {
   t.assert(
     [
       `UID:${encodeTaskUid(task.id_task)}`,
+      'X-MOZ-LASTACK:20260817T093456Z',
       'RRULE:FREQ=WEEKLY;INTERVAL=1;WKST=MO;BYDAY=MO,WE',
       'BEGIN:VALARM\r\nTRIGGER:-PT900S\r\nACTION:DISPLAY',
       'FREEBUSY;FBTYPE=BUSY:20260817T090000Z/20260817T100000Z',
@@ -50,6 +52,7 @@ test('buildSubscriptionCalendar combines RPC events and availability', (t) => {
     }),
   );
   t.assert(!calendar.includes('undefined') && !calendar.includes('CATEGORIES:\r\n'));
+  t.assert(calendar.split('FREEBUSY;FBTYPE=BUSY:').length > 2);
 });
 
 test('getSubscriptionPeriod returns one calendar year ending three months ahead', (t) => {
@@ -173,4 +176,100 @@ test('getSubscriptionCalendar loads all calendar parts through RPC', async (t) =
     ],
   );
   t.assert(typeof body === 'string' && body.startsWith('BEGIN:VCALENDAR'));
+});
+
+test('subscription exports Temporal UNTIL and rejects COUNT with UNTIL', (t) => {
+  const input = {
+    tasks: [{ ...task, recurrence: { recurrence_type: 4, interval: 1, until: '2026-08-19T09:00:00Z' } }],
+    availabilityConflicts: [],
+    start: new Date('2026-08-17T00:00:00Z'),
+    end: new Date('2026-08-20T00:00:00Z'),
+    language: 'ru',
+    userId: 7,
+  };
+  const calendar = new ICAL.Component(ICAL.parse(buildSubscriptionCalendar(input)));
+  const event = calendar.getFirstSubcomponent('vevent')!;
+  t.assert(new ICAL.Event(event).startDate.toJSDate().toISOString() === task.start_date);
+  t.assert(event.getFirstPropertyValue('rrule').until.toICALString() === '20260819T090000Z');
+  const busy = calendar.getFirstSubcomponent('vfreebusy')!;
+  t.assert(busy.getFirstPropertyValue('dtstart').toJSDate().toISOString() === input.start.toISOString());
+  t.assert(busy.getAllProperties('freebusy').length === 3);
+  t.throws(
+    () => {
+      return buildSubscriptionCalendar({
+        ...input,
+        tasks: [{ ...task, recurrence: { ...input.tasks[0].recurrence, count: 2 } }],
+      });
+    },
+    { message: /COUNT and UNTIL/ },
+  );
+});
+
+test('subscription expands monthly recurrence without overflowing short months', (t) => {
+  const calendar = buildSubscriptionCalendar({
+    tasks: [
+      {
+        ...task,
+        start_date: '2026-01-31T09:00:00.000Z',
+        end_date: '2026-01-31T10:00:00.000Z',
+        recurrence: { recurrence_type: 6, interval: 1, day_of_month: 31, count: 3 },
+      },
+    ],
+    availabilityConflicts: [],
+    start: new Date('2026-01-01T00:00:00.000Z'),
+    end: new Date('2026-06-01T00:00:00.000Z'),
+    language: 'ru',
+    userId: 7,
+  });
+  const busyPeriods = calendar
+    .split('FREEBUSY;FBTYPE=BUSY:')
+    .slice(1)
+    .map((value) => {
+      return value.split('\r\n')[0];
+    });
+
+  t.deepEqual(busyPeriods, [
+    '20260131T090000Z/20260131T100000Z',
+    '20260331T090000Z/20260331T100000Z',
+    '20260531T090000Z/20260531T100000Z',
+  ]);
+});
+
+test('subscription counts DTSTART first in a weekly recurrence', (t) => {
+  const calendar = buildSubscriptionCalendar({
+    tasks: [
+      {
+        ...task,
+        recurrence: { recurrence_type: 5, interval: 1, weekdays: 5, count: 3 },
+      },
+    ],
+    availabilityConflicts: [],
+    start: new Date('2026-08-24T00:00:00.000Z'),
+    end: new Date('2026-08-27T00:00:00.000Z'),
+    language: 'ru',
+    userId: 7,
+  });
+
+  t.assert(calendar.includes('FREEBUSY;FBTYPE=BUSY:20260824T090000Z/20260824T100000Z'));
+  t.assert(!calendar.includes('FREEBUSY;FBTYPE=BUSY:20260826T090000Z/20260826T100000Z'));
+});
+
+test('subscription expands hourly recurrence to the configured minute', (t) => {
+  const calendar = buildSubscriptionCalendar({
+    tasks: [
+      {
+        ...task,
+        start_date: '2026-08-17T09:50:00.000Z',
+        end_date: '2026-08-17T10:00:00.000Z',
+        recurrence: { recurrence_type: 3, interval: 1, minute: 15, until: '2026-08-17T11:00:00.000Z' },
+      },
+    ],
+    availabilityConflicts: [],
+    start: new Date('2026-08-17T10:00:00.000Z'),
+    end: new Date('2026-08-17T10:30:00.000Z'),
+    language: 'ru',
+    userId: 7,
+  });
+
+  t.assert(calendar.includes('FREEBUSY;FBTYPE=BUSY:20260817T101500Z/20260817T102500Z'));
 });
